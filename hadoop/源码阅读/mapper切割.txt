@@ -1,0 +1,31 @@
+ 一、确定切片数量
+
+        实际的mapper数量就是输入切片的数量，而切片的数量又由使用的输入格式决定，默认为TextInputFormat，该类为FileInputFormat的子类。确定切片数量的任务交由FileInputFormat的getSplits(job)完成。FileInputFormat继承自抽象类InputFormat，该类定义了MapReduce作业的输入规范，其中的抽象方法List<InputSplit> getSplits(JobContext context)定义了如何将输入分割为InputSplit，不同的输入有不同的分隔逻辑，而分隔得到的每个InputSplit交由不同的mapper处理，因此该方法的返回值确定了mapper的数量。
+
+       首先看InputFormat抽象类。InputFormat抽象类只提供了两个抽象方法，分别用于获取InputSplit和RecordReader。其中的InputSplit只是对输入文件的逻辑分割，而不是物理上将输入文件分割为块，或者说InputSplit只是指定了输入文件的某个范围输入到特定的Mapper中。而RecordReader是负责处理跨InputSplit记录的。
+
+       InputFormat为抽象类，其下有多种实现类，用于处理不同来源的数据。在实际的应用中，大多数情况都是使用FileInputFormat的子类做为输入，故重点学习FileInputFormat类。
+
+
+ FileInputFormat的主要子类有：TextInputFormat、SequenceFileInputFormat、NLineInputFormat、KeyValueTextInputFormat、FixedLengthInputFormat和CombineFileInputFormat等。
+
+Map数量的调整
+有了上述分析，如何调整map的数量就显而易见了。
+
+减小Map-Reduce job 启动时创建的Mapper数量
+当处理大批量的大数据时，一种常见的情况是job启动的mapper数量太多而超出了系统限制，导致Hadoop抛出异常终止执行。解决这种异常的思路是减少mapper的数量。具体如下：
+
+　　输入文件size巨大，但不是小文件
+
+　　这种情况可以通过增大每个mapper的input size，即增大minSize或者增大blockSize来减少所需的mapper的数量。增大blockSize通常不可行，因为当HDFS被hadoop namenode -format之后，blockSize就已经确定了（由格式化时dfs.block.size决定），如果要更改blockSize，需要重新格式化HDFS，这样当然会丢失已有的数据。所以通常情况下只能通过增大minSize，即增大mapred.min.split.size的值。
+
+　　输入文件数量巨大，且都是小文件
+　　所谓小文件，就是单个文件的size小于blockSize。这种情况通过增大mapred.min.split.size不可行，需要使用FileInputFormat衍生的CombineFileInputFormat将多个input path合并成一个InputSplit送给mapper处理，从而减少mapper的数量。
+
+
+增加Map-Reduce job 启动时创建的Mapper数量
+增加mapper的数量，可以通过减小每个mapper的输入做到，即减小blockSize或者减小mapred.min.split.size的值。通常情况下都是通过增大minSize，即增大mapred.min.split.size的值。
+
+
+
+https://blog.csdn.net/u010010428/article/details/51469994

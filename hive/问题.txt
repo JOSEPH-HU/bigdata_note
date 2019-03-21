@@ -1,0 +1,14 @@
+1.Caused by: org.apache.hadoop.hdfs.protocol.DSQuotaExceededException: The DiskSpace quota of /tmp/hive-hdfs/hdfs_20171031171313_4cd6f983-49fe-41fb-bd4a-027e9b9a143d-1 is exceeded: quota = 34084860461056 B = 31 GB but diskspace consumed = 36084860461056 B = 32.82 GB
+问题原因:
+	这是因为对hive的临时路径做了quota限制
+所谓的临时路径是指 hive进行多个stage操作时，例如临时表，join等，会产生数据，放在临时目录。
+当这个临时目录的数据超过30t时，即34084860461056Byte(注意hdfs有三份冗余，所以实际的数据是10t左右)， 会报错。
+目的是为了防止过于异常的sql执行，从而大大影响到hdfs集群的稳定性。
+问题解决:
+	注意检查sql，是不是有什么不规范的查询，例如join没有指定条件。
+是不是有大量的重复数据存在于join的key中等。
+两张表join时产生大量的临时数据，是否可以减小下数据量再发出join。
+调整下多个表join的顺序，以保证join完后的总数据量变小
+2.使用concat时，如果有个值为空，则返回值为空
+问题解决:
+	nvl(col,'')

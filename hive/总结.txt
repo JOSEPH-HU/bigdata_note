@@ -1,0 +1,13 @@
+1.限制hive生成临时文件的个数(主要是限制小文件)
+hive.exec.max.created.files:默认值是100000
+2.怎样插叙数据量非常大的数据
+select * from iteblog_tmp DISTRIBUTE BY rand(); 这样可以使数据分布均匀
+3.中间结果压缩
+hive.exec.compress.intermediate
+4.group by数据倾斜优化
+	a.map端部分聚合
+		 hive.map.aggr=true参数控制在group by的时候是否map局部聚合，这个参数默认是打开的,但不是所有的聚合能用这个优化，hive.groupby.mapaggr.checkinterval = 100000，Hive.map.aggr.hash.min.reduction=0.5；Map开始的时候先尝试给前100000 条记录做hash聚合，如果聚合后的记录数/100000>0.5说明这个groupby_key没有什么重复的，再继续做局部聚合没有意义，100000 以后就自动把聚合开关关掉
+	b.hive.groupby.skewindata =true
+		这个是默认关闭的，只有在groupby_key不散列，而distinct_key散列的情况下才需要打开这个开关，其他的情况map聚合优化就足矣。
+5.mapreduce.job.reduce.slowstart.completedmaps
+mapreduce.job.reduce.slowstart.completedmaps这个参数如果设置的过低，那么reduce就会过早地申请资源，造成资源浪费；如果这个参数设置的过高，比如为1，那么只有当map全部完成后，才为reduce申请资源，开始进行reduce操作，实际上是串行执行，不能采用并行方式充分利用资源。

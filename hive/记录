@@ -1,0 +1,4 @@
+public class GenericUDFConcatWS extends GenericUDF {
+
+
+public class GenericUDAFAverage extends AbstractGenericUDAFResolver {

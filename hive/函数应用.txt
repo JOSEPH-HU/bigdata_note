@@ -1,0 +1,7 @@
+1.group_concat --UDAF
+用法:
+select cat3_id,group_concat(groupid,1) from hive_bad.search_brand_guess_like_no_delete_v1 group by cat3_id
+第二个参数等于零是去重；第二个参数非零则去重
+2.concat_ws --UDF
+select cat3_id,concat_ws(',',groupid,cat3_id) from hive_bad.search_brand_guess_like_no_delete_v1
+多个字段合并在一起
