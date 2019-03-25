@@ -23,7 +23,7 @@ select
 	NVL(split(b.goods_id_row ,'_')[5],0) as inventory,
 	t.user_id,
 	a.page as page_name
-from ss t 
+from ss t
 lateral view json_tuple(t.activity_property,'page','goodslist','text') a as page, goodslist, text
 lateral view explode(split( a.goodslist ,',')) b as goods_id_row
 where t.app_name='特卖会' and t.dt= '${dt}' and t.activity_name='active_te_goods_expose' and t.mid is not null and t.app_platform in ('android','iphone')
