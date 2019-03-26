@@ -1,0 +1,42 @@
+-job.waitForCompletion(true) // 提交任务到集群并等到它完成
+--monitorAndPrintJob();//监控一个任务实时打印状态
+---submit();
+---- connect();
+================================================================
+cluster从这里赋值
+===============================================================
+----submitter.submitJobInternal(Job.this, cluster)//向系统提交作业的内部方法。
+-----JobID jobId = submitClient.getNewJobID();
+====================================================================
+submitClient(ClientProtocol):有两个LocalJobRunner和YARNRunner实现，为cluster赋值，Client即是提交器,分为本体提交器和Yarn提交器，由配置文件决定
+====================================================================
+-----int maps = writeSplits(job, submitJobDir);// 获得map数
+==============================================================
+InputFormat<?, ?> input =
+    ReflectionUtils.newInstance(job.getInputFormatClass(), conf);
+  List<InputSplit> splits = input.getSplits(job);
+  从这里获得分片
+  inputformat这个接口有好多类实现，这里咱们用的是fileInputFormat，getSplits这个方法就是把文件进行逻辑切割切割
+  isSplitable(job, path)isSplitable(job, path):判断文件是否切割，因为咱们走的是文本文件切割起，是能切割的,对于一些压缩文件是不能切割的
+  long splitSize = computeSplitSize(blockSize, minSize, maxSize)：计算文件切割的大小
+  这个是切割文件的公式：Math.max(minSize, Math.min(maxSize, blockSize))
+  blockSize：文件块的大小,
+  minSize = Math.max(getFormatMinSplitSize(), getMinSplitSize(job)); 这是这个公式的值(1,mapreduce.input.fileinputformat.split.minsize)
+  long maxSize = getMaxSplitSize(job);
+  context.getConfiguration().getLong(SPLIT_MAXSIZE, Long.MAX_VALUE);（mapreduce.input.fileinputformat.split.maxsize，Long.MAX_VALUE）
+
+  int blkIndex = getBlockIndex(blkLocations, length-bytesRemaining);获得块的索引位置
+这是存放切片的类：
+  FileSplit{
+  private Path file;
+    private long start;
+    private long length;
+    private String[] hosts;
+    private SplitLocationInfo[] hostInfos;
+  }
+从这个类中可以看出，为什么hadoop处理大文件。Path只能指向一个文件，不能合并文件，如果想合并文件，必须用其他的方法，暂时不看
+
+==============================================================
+----- writeConf(conf, submitJobFile);//写job文件到提交目录
+-----status = submitClient.submitJob(
+          jobId, submitJobDir.toString(), job.getCredentials());//真正提交任务

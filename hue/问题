@@ -1,0 +1,18 @@
+1.SyntaxError: Block-scoped declarations (let, const, function, class) not yet supported outside strict mode
+n stable
+由于node版本taidi，需要升级最新的版本
+npm install -g n
+n stable 或者 n v0.10.26
+
+  PREFIX=/home/hlw/software make install
+
+  /home/hlw/software/hadoop-3.1.2/etc/hadoop
+
+  /home/hlw/software/apache-hive-2.3.4-bin/conf
+
+nohup /home/hlw/software/hue/build/env/bin/supervisor &
+
+https://blog.csdn.net/u012802702/article/details/68071244/
+
+
+IOError: Error reading /home/hlw/software/hue/webpack-stats-login.json. Are you sure webpack has generated the file and the path is correct?

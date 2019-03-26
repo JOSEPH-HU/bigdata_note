@@ -1,0 +1,7 @@
+1.hadoop3.1.2下MapReduce操作出现错误: 找不到或无法加载主类org.apache.hadoop.mapreduce.v2.app.MRAppMaster 问题解决方法
+$hadoop classpath
+把输入的路径加入到yarn-site.xml
+<property>
+       <name>yarn.application.classpath</name>
+       <value>输入刚才返回的Hadoop classpath路径</value>
+   </property>
