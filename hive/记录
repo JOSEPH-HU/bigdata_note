@@ -4,6 +4,9 @@ public class GenericUDFConcatWS extends GenericUDF {
 public class GenericUDAFAverage extends AbstractGenericUDAFResolver {
 
 
+控制map和reducer的数目:
+set hive.exec.reducers.bytes.per.reducer=300000000;
+set mapreduce.input.fileinputformat.split.maxsize=512000000;
 
 通用设置
 hive.optimize.cp=true：列裁剪
@@ -118,8 +121,3 @@ ORCFile 
 row_number() 是没有重复值的排序(即使两天记录相等也是不重复的),可以利用它来实现分页
 dense_rank() 是连续排序,两个第二名仍然跟着第三名
 rank()       是跳跃排序的,两个第二名下来就是第四名
----------------------
-作者：Perkinl
-来源：CSDN
-原文：https://blog.csdn.net/lp284558195/article/details/80326204
-版权声明：本文为博主原创文章，转载请附上博文链接！
