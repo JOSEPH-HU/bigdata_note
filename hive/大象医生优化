@@ -1,0 +1,235 @@
+Distributed Cache Limit：默认阈值：500M(524288000)
+任务调优：
+用户通过mapreduce.job.cache.{files |archives}来分发文件或压缩包，
+一般在jar任务中设置，这里考虑将最大值设置为1G(1073741824)，与mapjoin cache情况保持一致。
+
+
+MapReduceConfiguration:
+Mapper Speed:
+如果速度过慢，适当减少map的大小；mapreduce.input.fileinputformat.split.maxsize
+
+
+
+Mapper/Reducer GC
+这里map/reduce task GC情况相对比较复杂，与sql code相关以及jvm配置相关；之前遇到过jvm参数
+设置不合理造成不停full GC的情况。对于map/reduce GC告警具体情况具体分析，一般是一类问题。
+
+WARNING: Hive-on-MR is deprecated in Hive 2 and may not be available in the future versions. Consider using a different execution engine (i.e. tez, spark) or using Hive 1.X releases.
+Query ID = hdfs_20180201122335_6a276b54-b7d8-4c63-99ff-4e24e2891680
+Total jobs = 6
+Stage-20 is selected by condition resolver.
+Stage-1 is filtered out by condition resolver.
+SLF4J: Class path contains multiple SLF4J bindings.
+SLF4J: Found binding in [jar:file:/home/vipshop/platform/hive-vipshop-release-2.1.1/lib/log4j-slf4j-impl-2.4.1.jar!/org/slf4j/impl/StaticLoggerBinder.class]
+SLF4J: Found binding in [jar:file:/home/vipshop/platform/tez-0.7.0/lib/slf4j-log4j12-1.7.5.jar!/org/slf4j/impl/StaticLoggerBinder.class]
+SLF4J: Found binding in [jar:file:/home/vipshop/platform/hadoop-2.5.0-cdh5.3.2/share/hadoop/common/lib/slf4j-log4j12-1.7.5.jar!/org/slf4j/impl/StaticLoggerBinder.class]
+SLF4J: See http://www.slf4j.org/codes.html#multiple_bindings for an explanation.
+SLF4J: Actual binding is of type [org.apache.logging.slf4j.Log4jLoggerFactory]
+2018-02-01 12:23:44 Starting to launch local task to process map join; maximum memory = 1018691584
+2018-02-01 12:23:50 Processing rows: 200000 Hashtable size: 199999 Memory usage: 234169240 percentage: 0.23
+2018-02-01 12:23:50 Processing rows: 300000 Hashtable size: 299999 Memory usage: 249933072 percentage: 0.245
+2018-02-01 12:23:50 Processing rows: 400000 Hashtable size: 399999 Memory usage: 269891224 percentage: 0.265
+2018-02-01 12:23:50 Processing rows: 500000 Hashtable size: 499999 Memory usage: 280400440 percentage: 0.275
+2018-02-01 12:23:50 Processing rows: 600000 Hashtable size: 599999 Memory usage: 296164256 percentage: 0.291
+2018-02-01 12:23:50 Processing rows: 700000 Hashtable size: 699999 Memory usage: 311928088 percentage: 0.306
+2018-02-01 12:23:50 Processing rows: 800000 Hashtable size: 799999 Memory usage: 336080544 percentage: 0.33
+2018-02-01 12:23:50 Processing rows: 900000 Hashtable size: 899999 Memory usage: 346589752 percentage: 0.34
+2018-02-01 12:23:50 Processing rows: 1000000 Hashtable size: 999999 Memory usage: 362353568 percentage: 0.356
+2018-02-01 12:23:50 Processing rows: 1100000 Hashtable size: 1099999 Memory usage: 378117400 percentage: 0.371
+2018-02-01 12:23:51 Processing rows: 1200000 Hashtable size: 1199999 Memory usage: 309413416 percentage: 0.304
+2018-02-01 12:23:51 Processing rows: 1300000 Hashtable size: 1299999 Memory usage: 323632376 percentage: 0.318
+2018-02-01 12:23:51 Processing rows: 1400000 Hashtable size: 1399999 Memory usage: 337851352 percentage: 0.332
+2018-02-01 12:23:51 Processing rows: 1500000 Hashtable size: 1499999 Memory usage: 352070312 percentage: 0.346
+2018-02-01 12:23:51 Processing rows: 1600000 Hashtable size: 1599999 Memory usage: 383066520 percentage: 0.376
+2018-02-01 12:23:51 Processing rows: 1700000 Hashtable size: 1699999 Memory usage: 397285480 percentage: 0.39
+
+..............
+
+sql语句如下：
+drop table temp_ds.fzs_app_user_brand_score_rank_crm_${dt};
+
+create table temp_ds.fzs_app_user_brand_score_rank_crm_${dt} as
+
+select
+
+  tmp1.user_id
+
+ ,tmp1.pt_brand_id
+
+ ,tmp3.pt_name as pt_brand_name
+
+ ,tmp1.score
+
+ ,row_number() over(partition by tmp1.user_id order by tmp1.score desc) as rank
+
+ ,tmp1.ct1_id
+
+ ,tmp1.ct1_name
+
+ ,tmp1.add_time
+
+ ,tmp1.brand_store_level
+
+ ,tmp1.reco_tag
+
+from
+
+(select
+
+  user_id
+
+ ,pt_brand_id
+
+ ,pt_brand_name
+
+ ,score
+
+ ,rank
+
+ ,ct1_id
+
+ ,ct1_name
+
+ ,add_time
+
+ ,brand_store_level
+
+ ,reco_tag
+
+ from temp_bigdata.fzs_app_user_brand_score_rank_tmpx_${dt}
+
+) tmp1
+
+join
+
+(select
+
+  user_id
+
+ from temp.fzs_crm_uid_filter_${dt}
+
+) tmp2
+
+on tmp1.user_id=tmp2.user_id
+
+join
+
+(select
+
+  brand_store_sn
+
+ ,pt_name
+
+ from temp_bigdata.fzs_app_user_brand_pt_name_crm_${dt}
+
+) tmp3
+
+on tmp1.pt_brand_id=tmp3.brand_store_sn
+
+;
+
+临时解决：
+orc的压缩比太大造成的，在问题的sql前加上关闭mapjoin的参数：set hive.auto.convert.join=false;然后重跑。
+
+具体原因定位：
+
+运行sql运行过程中根据jmap获取进程日志,进行分析。
+
+小表大小：
+
+temp.fzs_crm_uid_filter_jiangc_test_20180201
+
+-rw-r--r--   3 hdfs hdfs   19794447 2018-02-07 12:12 hdfs://bipcluster/bip/hive_warehouse/temp.db/fzs_crm_uid_filter_jiangc_test_20180201/000000_0
+
+记录数：
+
+23371331 Rows loaded to hdfs://bipcluster/tmp/hive-hdfs/hive_2018-02-07_11-59-55_151_1061813914382291338-1/-ext-10000
+export HADOOP_CLIENT_OPTS="-Xloggc:/tmp/hiveclient-gc-$(date +%Y%m%d-%H%M%S)_$$.log -XX:+PrintGCDetails -XX:NewRatio=3 -XX:SurvivorRatio=8 -XX:+PrintGCDateStamps $HADOOP_CLIENT_OPTS"
+
+--注意：只需更新hive2.1.1版本以及中控机配置
+
+
+Mapper Memory
+
+map/reduce memory 默认值：
+Map Task:
+mapreduce.map.java.opts=-Xmx1280m -Xms1280m -Xmn256m -XX:SurvivorRatio=6 -XX:MaxPermSize=128m -XX:ParallelGCThreads=4 -XX:+PrintGCDateStamps -XX:+PrintGCDetails -Xloggc:<LOG_DIR>/gc.out
+mapreduce.map.memory.mb=1664
+
+Reduce Task:
+mapreduce.reduce.java.opts=-Xmx1280m -Xms1280m -Xmn256m -XX:SurvivorRatio=6 -XX:MaxPermSize=128m -XX:ParallelGCThreads=4 -XX:+PrintGCDateStamps -XX:+PrintGCDetails -Xloggc:<LOG_DIR>/gc.out
+mapreduce.reduce.memory.mb=1664
+
+告警优化：
+上述默认值是系统默认进行配置的，如果用户自己没有进行配置，那么会按照默认值运行任务；
+在具体任务运行过程中存在有的任务map/reduce出现内存不足的情况，那么需要用户临时添加map/reduce内存来解决。
+对于临时情况可以这么添加解决问题，但彻底找到rootcase需要对运行的sql进行定位，找到oom的原因进行解决。
+
+如何调整map/reduce memory参数：
+如果用户已经修改了默认的map/reduce内存，现在重新设置回默认参数，需要在sql前设置以下参数即可：
+map内存设置：
+set mapreduce.map.java.opts=-Xmx1280m -Xms1280m -Xmn256m -XX:SurvivorRatio=6 -XX:MaxPermSize=128m;
+set mapreduce.map.memory.mb=1664;
+reduce内存设置：
+set mapreduce.reduce.java.opts=-Xmx1280m -Xms1280m -Xmn256m -XX:SurvivorRatio=6 -XX:MaxPermSize=128m;
+set mapreduce.reduce.memory.mb=1664;
+
+注意一下：
+如果只是对单个sql进行设置，那么需要在调整的sql前直接加，然后在调整的sql
+后在设置回原来的参数，避免对该sql一下sql产生影响；
+map设置举例1：这里将sql2的使用map内存调整为4096M解决oom问题，在sql2之后
+将map内存调整为原来的1664M，避免对sql2以下的sql产生影响；
+####sql1#####
+set mapreduce.map.java.opts=-Xmx2560m -Xms2560m -Xmn256m -XX:SurvivorRatio=6 -XX:MaxPermSize=128m;
+set mapreduce.map.memory.mb=4096;
+####sql2#####
+set mapreduce.map.java.opts=-Xmx1280m -Xms1280m -Xmn256m -XX:SurvivorRatio=6 -XX:MaxPermSize=128m;
+set mapreduce.map.memory.mb=1664;
+####sql3#####
+map设置举例2：比如用户设置更高的内存，现在准备调整到默认的内存数量，
+可以将默认的参数进行设置或者直接去掉设置的更高的内存参数即可。
+修改后：
+####sql1#####
+set mapreduce.map.java.opts=-Xmx1280m -Xms1280m -Xmn256m -XX:SurvivorRatio=6 -XX:MaxPermSize=128m;
+set mapreduce.map.memory.mb=1664;
+
+
+Mapper Skew
+
+自己按照数据倾斜的方式优化
+
+Mapper Spill
+
+1.Increase the size of in-memory sort buffer (mapreduce.task.io.sort.mb), default 100M
+2.Increase the buffer spill percentage (mapreduce.map.sort.spill.percent, when it is reached a background thread will start spill buffer to disk), default value is 0.8.
+3.Use combiner to lower the map output size.
+4.Compress mapper output (set mapreduce.map.output.compress and mapreduce.map.output.compress.codec)
+
+
+Mapper Time
+
+Mapper time too short
+
+This usually happens when the Hadoop job has:
+1.A large number of mappers
+2.Short mapper avg runtime
+3.Small file size
+建议:
+set mapreduce.input.fileinputformat.split.minsize=XXXXX
+
+Reducer Memory 同mapper
+
+
+Reducer Skew
+
+
+
+Reducer Time
+
+有可能reducer太多或者太少
+For Apache-Hive jobs: Use "set mapreduce.job.reduces=NUMBER_OF_REDUCERS"
+
+
+Shuffle & Sort
+
+For Apache-Hive jobs: Use "set mapreduce.job.reduce.slowstart.completedmaps=0.95"

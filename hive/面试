@@ -27,3 +27,50 @@
   g.设置map和reduce个数：默认情况下一个块对应一个map任务，map数据我们一般不去调整，reduce个数根据reduce处理的数据量大小进行适当调整体现“分而治之”的思想
   k.JVM重用：一个job可能有多个map reduce任务，每个任务会开启一个JVM虚拟机，默认情况下一个任务对应一个JVM，任务运行完JVM即销毁，我们可以设置JVM重用参数，一般不超过5个，这样一个JVM内可以连续运行多个任务.set mapred.job.reuse.jvm.num.tasks=10;
   l.推测执行：例如一个Job应用有10个MapReduce任务（map 及reduce），其中9个任务已经完成，那么application Master会在另外启动一个相同的任务来运行未完成的那个，最后哪个先运行完成就把另一个kill掉.hive.mapred.reduce.tasks.speculative.execution=true;
+6.数据倾斜
+  当数据量比较大时，并且key分布不均匀，大量的key都shuffle到一个reduce上，就出现数据倾斜,常见的数据倾斜出现在group by和join on语句中
+  a.join数据倾斜
+    a1.在进行两个表join的过程中，由于hive都是从左向右执行，要注意将小表在前，大表在后.
+    如果是group by过程出现倾斜应将此项设置true。hive.groupby.skewindata;如果是join 过程中出现倾斜应将此项设置为true,hive.optimize.skewjoin.compiletime;hive.optimize.skewjoin.compiletime=true; 如果是join过程出现倾斜应该设置为true
+    此时会将join语句转化为两个mapreduce任务，第一个会给jion字段加随机散列
+    set hive.skewjoin.key=100000; 这个是join的键对应的记录条数超过这个值则会进行优化。
+    空值太多或者类型不一致（join）
+  b.Map-side Join
+    当join两个表时，其中一个表是小表和另一个表是大表，我们可以直接把小表直接放到内存中,然后再对比较大的表进行map操作。join就发生在map操作阶段，
+    set hive.auto.convert.join=true;set hive.auto.convert.join.noconditionaltask.size=10000000 样设置，hive就会自动的识别比较小的表，继而用mapJoin来实现两个表的联合。看看下面的两个表格的连接。
+    select /+mapjoin(A)/ f.a,f.b from A t join B f on(f.a==t.a);set hive.auto.convert.join=true;hive.mapjoin.smalltable.filesize=25;默认值是25mb
+  c.Reduce-side Join
+    在map阶段，map函数同时读取两个文件File1和File2，为了区分两种来源的key/value数据对，对每条数据打一个标签（tag）
+  d.SMB Join（sort merge bucket)首先进行排序，继而合并，然后放到所对应的bucket中去，bucket是hive中和分区表类似的技术，就是按照key进行hash，  相同的hash值都放到相同的buck中去。在进行两个表联合的时候。我们首先进行分桶，在join会大幅度的对性能进行优化。也就是说，在进行联合的时候，  是table1中的一小部分和table1中的一小部分进行联合，table联合都是等值连接，相同的key都放到了同一个bucket中去了，那么在联合的时候就会大幅度的减小无关项的扫描。
+  set hive.auto.convert.sortmerge.join=true;
+  set hive.optimize.bucketmapjoin = true;
+  set hive.optimize.bucketmapjoin.sortedmerge = true;
+  set hive.auto.convert.sortmerge.join.noconditionaltask=true;
+  create table emp_info_bucket(ename string,deptno int)
+  partitioned by (empno string)
+  clustered by(deptno) into 4 buckets;
+
+  insert overwrite table emp_info_bucket
+  partition (empno=7369)
+  select ename ,deptno from emp
+
+  create table dept_info_bucket(deptno string,dname string,loc string)
+  clustered by (deptno) into 4 buckets;
+
+  insert overwrite table dept_info_bucket
+  select * from dept;
+  select * from emp_info_bucket emp  join dept_info_bucket dept
+  on(emp.deptno==dept.deptno);//正常的情况下，应该是启动smbjoin的但是这里的数据量太小啦，还是启动了mapjoin
+  from trackinfo a
+处理数据倾斜：随机数
+left outer join pm_info b
+on (
+case when (a.ext_field7 is not null
+and length(a.ext_field7) > 0
+and a.ext_field7 rlike ‘^[0-9]+$’)
+then
+cast(a.ext_field7 as bigint)
+else
+cast(ceiling(rand() * -65535) as bigint)
+end = b.id
+)
