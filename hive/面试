@@ -1,0 +1,29 @@
+1.hive表的类型
+  a.内部表和外部表的区别
+    创建表：外部表创建表的时候，不会移动到数据仓库目录中，只会记录表数据存放的路径;内部表会把数据保存到数仓目录下
+    删除表:外部表只会删除表的元数据信息而不会删除表数据;内部表会删除元数据和表数据
+  b.分区表:分区表创建表的时候需要指定分区字段，分区字段和普通字段的区别：分区字段会在hdfs表目录下生成一个分区字段名称的目录，而普通字段则不会。
+  c.桶表:将内部表、外部表和分区表进一步组织成桶表,可以将表的列同hash算法进一步分解成不同的存储文件
+2.hive自定义函数
+  UDF:一进一出
+  UDAF:多进一出
+  UDTF:一进多出
+3.4种排序
+  a.order by:对输入做全局排序，因此只有一个reducer
+  b.sort by(对分区内的数据进行排序):sort by不是全局排序，其在数据进入reducer前完成排序，因此，如果用sort by进行排序，并且设置mapred.reduce.tasks>1，则sort by只会保证每个reducer的输出有序，并不保证全局有序。sort by不同于order by，它不受Hive.mapred.mode属性的影响，sort by的数据只能保证在同一个reduce中的数据可以按指定字段排序。使用sort by你可以指定执行的reduce个数(通过set mapred.reduce.tasks=n来指定)，对输出的数据再执行归并排序，即可得到全部结果。
+  c.distribute by(对map输出进行分区):distribute by是控制在map端如何拆分数据给reduce端的。hive会根据distribute by后面列，对应reduce的个数进行分发，默认是采用hash算法。sort by为每个reduce产生一个排序文件。在有些情况下，你需要控制某个特定行应该到哪个reducer，这通常是为了进行后续的聚集操作。distribute by刚好可以做这件事。因此，distribute by经常和sort by配合使用。
+  d.cluster by :cluster by除了具有distribute by的功能外还兼具sort by的功能。当distribute by和sort by 是同一个字段的时候可以使用cluster by替代。但是排序只能是倒叙排序，不能指定排序规则为ASC或者DESC。
+4.局部分组排序
+  a.row_number：不管col2字段的值是否相等，行号一直递增，比如：有两条记录的值相等，但一个是第一，一个是第二
+  b.rank：上下两条记录的col2相等时，记录的行号是一样的，但下一个col2值的行号递增N（N是重复的次数），比如：有两条并列第一，下一个是第三，没有第二
+  c.dense_rank：上下两条记录的col2相等时，下一个col2值的行号递增1，比如：有两条并列第一，下一个是第二
+5.hive优化
+  a.fetch task任务不走MapReduce，可以在hive配置文件中设置最大化和最小化fetch task任务,set hive.fetch.task.conversion=more;   //单次交互模式下有效，或者bin/hive --hiveconf hive.fetch.task.conversion=more
+  b.strict mode：严格模式设置，严格模式下将会限制一些查询操作,hive.mapred.mode=strict;a：当表为分区表时，where字句后没有分区字段和限制时，不允许执行。b：当使用order by语句时，必须使用limit字段，因为order by 只会产生一个reduce任务;c：限制笛卡尔积的查询。sql语句不加where不会执行
+  c.限制临时数据目录的大小
+  d.优化sql语句，如先过滤再join，先分组再做distinct;
+  e.MapReduce过程的map、shuffle、reduce端的snappy压缩;set mapreduce.output.fileoutputformat.compress=true;set mapreduce.output.fileoutputformat.compress.codec=org apache.hadoop.io.compress.SnappyCodec;
+  f.大表拆分成子表，提取中间结果集，减少每次加载数据.多维度分析，多个分析模块;每个分析模块涉及字段不一样，而且并不是表的全部字段
+  g.设置map和reduce个数：默认情况下一个块对应一个map任务，map数据我们一般不去调整，reduce个数根据reduce处理的数据量大小进行适当调整体现“分而治之”的思想
+  k.JVM重用：一个job可能有多个map reduce任务，每个任务会开启一个JVM虚拟机，默认情况下一个任务对应一个JVM，任务运行完JVM即销毁，我们可以设置JVM重用参数，一般不超过5个，这样一个JVM内可以连续运行多个任务.set mapred.job.reuse.jvm.num.tasks=10;
+  l.推测执行：例如一个Job应用有10个MapReduce任务（map 及reduce），其中9个任务已经完成，那么application Master会在另外启动一个相同的任务来运行未完成的那个，最后哪个先运行完成就把另一个kill掉.hive.mapred.reduce.tasks.speculative.execution=true;

@@ -97,8 +97,29 @@ set mapred.reduce.tasks：每个任务默认的reduce数目。典型为0.99*redu
 使用索引：
 hive.optimize.index.filter：自动使用索引
 hive.optimize.index.groupby：使用聚合索引优化GROUP BY操作
+
+set hive.exec.reducers.bytes.per.reducer=300000000;
+set mapreduce.input.fileinputformat.split.maxsize=614400000;
+
+
+6)Hive文件压缩格式有哪些，压缩效率如何
+开启压缩
+set hive.exec.compress.output=true;
+set mapred.output.compress=true;
+set mapred.output.compression.codec=org.apache.hadoop.io.compress.GzipCodec;
+set io.compression.codec=org.apache.hadoop.io.compress.GzipCodec;
+set mapred.output.compression.type=BLOCK;
+TextFile (压缩方式Gzip,Bzip2压缩后不支持split)
+SequenceFile
+RCFile(存储方式：数据按行分块，每块按列存储。结合了行存储和列存储的优点)
+ORCFile 
+
+7)Hive的分组方式
+row_number() 是没有重复值的排序(即使两天记录相等也是不重复的),可以利用它来实现分页
+dense_rank() 是连续排序,两个第二名仍然跟着第三名
+rank()       是跳跃排序的,两个第二名下来就是第四名
 ---------------------
-作者：翱翔的江鸟
+作者：Perkinl
 来源：CSDN
-原文：https://blog.csdn.net/wxfghy/article/details/81361400
+原文：https://blog.csdn.net/lp284558195/article/details/80326204
 版权声明：本文为博主原创文章，转载请附上博文链接！
