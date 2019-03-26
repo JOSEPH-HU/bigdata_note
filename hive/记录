@@ -2,3 +2,122 @@ public class GenericUDFConcatWS extends GenericUDF {
 
 
 public class GenericUDAFAverage extends AbstractGenericUDAFResolver {
+
+
+控制map和reducer的数目:
+set hive.exec.reducers.bytes.per.reducer=300000000;
+set mapreduce.input.fileinputformat.split.maxsize=512000000;
+
+通用设置
+hive.optimize.cp=true：列裁剪
+hive.optimize.prunner：分区裁剪
+hive.limit.optimize.enable=true：优化LIMIT n语句
+hive.limit.row.max.size=1000000：
+hive.limit.optimize.limit.file=10：最大文件数
+
+本地模式(小任务)
+job的输入数据大小必须小于参数：hive.exec.mode.local.auto.inputbytes.max(默认128MB)
+job的map数必须小于参数：hive.exec.mode.local.auto.tasks.max(默认4)
+job的reduce数必须为0或者1
+hive.exec.mode.local.auto.inputbytes.max=134217728
+hive.exec.mode.local.auto.tasks.max=4
+hive.exec.mode.local.auto=true
+hive.mapred.local.mem：本地模式启动的JVM内存大小
+并发执行
+hive.exec.parallel=true ，默认为false
+hive.exec.parallel.thread.number=8
+
+Strict Mode：
+hive.mapred.mode=true，严格模式不允许执行以下查询：
+分区表上没有指定了分区
+没有limit限制的order by语句
+笛卡尔积：JOIN时没有ON语句
+动态分区
+hive.exec.dynamic.partition.mode=strict：该模式下必须指定一个静态分区
+hive.exec.max.dynamic.partitions=1000
+hive.exec.max.dynamic.partitions.pernode=100：在每一个mapper/reducer节点允许创建的最大分区数
+DATANODE：dfs.datanode.max.xceivers=8192：允许DATANODE打开多少个文件
+
+推测执行
+mapred.map.tasks.speculative.execution=true
+mapred.reduce.tasks.speculative.execution=true
+hive.mapred.reduce.tasks.speculative.execution=true;
+
+多个group by合并
+hive.multigroupby.singlemar=true：当多个GROUP BY语句有相同的分组列，则会优化为一个MR任务
+
+虚拟列
+hive.exec.rowoffset：是否提供虚拟列
+
+分组
+两个聚集函数不能有不同的DISTINCT列，以下表达式是错误的：
+INSERT OVERWRITE TABLE pv_gender_agg SELECT pv_users.gender, count(DISTINCT pv_users.userid), count(DISTINCT pv_users.ip) FROM pv_users GROUP BY pv_users.gender;
+SELECT语句中只能有GROUP BY的列或者聚集函数。
+Combiner聚合
+hive.map.aggr=true;在map中会做部分聚集操作，效率更高但需要更多的内存。
+hive.groupby.mapaggr.checkinterval：在Map端进行聚合操作的条目数目
+
+数据倾斜
+hive.groupby.skewindata=true：数据倾斜时负载均衡，当选项设定为true，生成的查询计划会有两个MRJob。
+第一个MRJob 中，Map的输出结果集合会随机分布到Reduce中，每个Reduce做部分聚合操作，并输出结果，这样处理的结果是相同的GroupBy Key
+有可能被分发到不同的Reduce中，从而达到负载均衡的目的；
+第二个MRJob再根据预处理的数据结果按照GroupBy Key分布到Reduce中（这个过程可以保证相同的GroupBy Key被分布到同一个Reduce中），最后完成最终的聚合操作。
+排序
+ORDER BY colName ASC/DESC
+hive.mapred.mode=strict时需要跟limit子句
+hive.mapred.mode=nonstrict时使用单个reduce完成排序
+SORT BY colName ASC/DESC ：每个reduce内排序
+DISTRIBUTE BY(子查询情况下使用 )：控制特定行应该到哪个reducer，并不保证reduce内数据的顺序
+CLUSTER BY ：当SORT BY 、DISTRIBUTE BY使用相同的列时。
+
+合并小文件
+hive.merg.mapfiles=true：合并map输出
+hive.merge.mapredfiles=false：合并reduce输出
+hive.merge.size.per.task=256*1000*1000：合并文件的大小
+hive.mergejob.maponly=true：如果支持CombineHiveInputFormat则生成只有Map的任务执行merge
+hive.merge.smallfiles.avgsize=16000000：文件的平均大小小于该值时，会启动一个MR任务执行merge。
+
+自定义map/reduce数目
+减少map数目：
+　　set mapred.max.split.size
+　　set mapred.min.split.size
+　　set mapred.min.split.size.per.node
+　　set mapred.min.split.size.per.rack
+　　set hive.input.format=org.apache.hadoop.hive.ql.io.CombineHiveInputFormat
+增加map数目：
+当input的文件都很大，任务逻辑复杂，map执行非常慢的时候，可以考虑增加Map数，来使得每个map处理的数据量减少，从而提高任务的执行效率。
+假设有这样一个任务：
+select data_desc, count(1), count(distinct id),sum(case when …),sum(case when ...),sum(…) from a group by data_desc
+如果表a只有一个文件，大小为120M，但包含几千万的记录，如果用1个map去完成这个任务，肯定是比较耗时的，这种情况下，我们要考虑将这一个文件合理的拆分成多个，这样就可以用多个map任务去完成。
+　　set mapred.reduce.tasks=10;
+　　create table a_1 as select * from a distribute by rand(123);
+这样会将a表的记录，随机的分散到包含10个文件的a_1表中，再用a_1代替上面sql中的a表，则会用10个map任务去完成。每个map任务处理大于12M（几百万记录）的数据，效率肯定会好很多。
+reduce数目设置：
+参数1：hive.exec.reducers.bytes.per.reducer=1G：每个reduce任务处理的数据量
+参数2：hive.exec.reducers.max=999(0.95*TaskTracker数)：每个任务最大的reduce数目
+reducer数=min(参数2,总输入数据量/参数1)
+set mapred.reduce.tasks：每个任务默认的reduce数目。典型为0.99*reduce槽数，hive将其设置为-1，自动确定reduce数目。
+使用索引：
+hive.optimize.index.filter：自动使用索引
+hive.optimize.index.groupby：使用聚合索引优化GROUP BY操作
+
+set hive.exec.reducers.bytes.per.reducer=300000000;
+set mapreduce.input.fileinputformat.split.maxsize=614400000;
+
+
+6)Hive文件压缩格式有哪些，压缩效率如何
+开启压缩
+set hive.exec.compress.output=true;
+set mapred.output.compress=true;
+set mapred.output.compression.codec=org.apache.hadoop.io.compress.GzipCodec;
+set io.compression.codec=org.apache.hadoop.io.compress.GzipCodec;
+set mapred.output.compression.type=BLOCK;
+TextFile (压缩方式Gzip,Bzip2压缩后不支持split)
+SequenceFile
+RCFile(存储方式：数据按行分块，每块按列存储。结合了行存储和列存储的优点)
+ORCFile 
+
+7)Hive的分组方式
+row_number() 是没有重复值的排序(即使两天记录相等也是不重复的),可以利用它来实现分页
+dense_rank() 是连续排序,两个第二名仍然跟着第三名
+rank()       是跳跃排序的,两个第二名下来就是第四名

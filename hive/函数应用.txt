@@ -5,3 +5,25 @@ select cat3_id,group_concat(groupid,1) from hive_bad.search_brand_guess_like_no_
 2.concat_ws --UDF
 select cat3_id,concat_ws(',',groupid,cat3_id) from hive_bad.search_brand_guess_like_no_delete_v1
 多个字段合并在一起
+3.
+create table temp.all_log_exposure_${dt}_01 as
+select
+	t.mid,
+	split(b.goods_id_row ,'_')[1] as goods_id,
+	CASE WHEN
+	size(split(b.goods_id_row ,'_')) <=6
+	THEN split(b.goods_id_row ,'_')[2]
+	ELSE split(b.goods_id_row ,'_')[7]
+	END AS rows,
+	a.text,
+	t.app_version,
+	t.site_id,
+	t.tab_page_id,
+	t.app_platform,
+	NVL(split(b.goods_id_row ,'_')[5],0) as inventory,
+	t.user_id,
+	a.page as page_name
+from ss t
+lateral view json_tuple(t.activity_property,'page','goodslist','text') a as page, goodslist, text
+lateral view explode(split( a.goodslist ,',')) b as goods_id_row
+where t.app_name='特卖会' and t.dt= '${dt}' and t.activity_name='active_te_goods_expose' and t.mid is not null and t.app_platform in ('android','iphone')
