@@ -1,0 +1,16 @@
+1.spark shuffle过程
+  spark shuffle相对比较简单，因为不需要全局有序，所以没有那么多排序合并操作，spark shuffle分为write和read两个过程
+  a.shuffle write
+    shuffle write的处理逻辑会放到该ShuffleMapStage的最后（因为spark以shuffle发生与否来划分stage，也就是宽依赖），final RDD的每一条记录都会写到对应的分区缓存区bucket，
+    1.上图中有2个cpu，可以同时运行两个shuffleMapTask
+    2.每个task将写一个buket缓冲区，缓冲区的数量和reduce任务的数量相等
+    3.每个buket缓冲区会生成一个对应的shuffleBlockFile
+    4.shuffleMapTask如何决定数据被写入到那个缓冲区呢？这个是跟partition算法有关系，这个分区算法可以是hash，也可以是range
+    5.最终产生的shuffleBlockFIle会有多少呢？就是shufflemaptask乘以reduce的数量，这个是非常巨大的，那么有没有办法解决生成文件过多的问题呢？开启FileConsolidation即可
+    在同一核CPU执行先后执行的ShuffleMapTask可以共用一个bucket缓冲区，然后写到同一份ShuffleFile里去，上图所示的ShuffleFile实际上是用多个ShuffleBlock构成，那么，那么每个worker最终生成的文件数量，变成了cpu核数乘以reduce任务的数量，大大缩减了文件量。
+  b.Shuffle read
+    那么Shuffle Read发送的时机是什么？是要等所有ShuffleMapTask执行完，再去fetch数据吗？理论上，只要有一个 ShuffleMapTask执行完，就可以开始fetch数据了，实际上，spark必须等到父stage执行完，才能执行子stage，所以，必须等到所有 ShuffleMapTask执行完毕，才去fetch数据。fetch过来的数据，先存入一个Buffer缓冲区，所以这里一次性fetch的FileSegment不能太大，当然如果fetch过来的数据大于每一个阀值，也是会spill到磁盘的。
+  总结：
+    1、Hadoop的有一个Map完成，Reduce便可以去fetch数据了，不必等到所有Map任务完成，而Spark的必须等到父stage完成，也就是父stage的map操作全部完成才能去fetch数据。
+    2、Hadoop的Shuffle是sort-base的，那么不管是Map的输出，还是Reduce的输出，都是partion内有序的，而spark不要求这一点。
+    3、Hadoop的Reduce要等到fetch完全部数据，才将数据传入reduce函数进行聚合，而spark是一边fetch一边聚合。

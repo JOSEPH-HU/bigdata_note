@@ -111,7 +111,25 @@ FairS cheduler
 10.hadoop的mr过程
 
 
-11.hdfs块大小为64MB，64kb 65MB 127MB
+11.hadoop的shuffle过程
+  shuffle描述的是数据从map端到reduce端的过程，大致分为排序（sort）、溢写（spill）、合并（merge）、拉取拷贝(copy)、合并排序（merge sort）这几个过程
+
+  map端做的操作
+  1.排序（sort）
+    map端的输出数据，先写入环形缓冲区kvbuffer，当缓冲区到达一个阀值（默认是是80%），便要开始溢写，但溢写之前会有一个sort操作，这个sort操作先把kvbuffer中数据按照partition值和key两个关键字来排序，移植的只有索引数据，排序结果是kvbuffer中的数据按照partition为单位聚集在一起，同一个partition内的按照key有序。
+  2.spill 溢写
+    当排序完成后，便开始把数据刷到磁盘，刷磁盘的过程以分区为单位，一个分区写完，写下一个分区，分区内数据有序，最终实际上会多次溢写，然后生成多个文件
+  3.merge 合并
+    spill会生成多个小文件，对于reduce端拉取数据相当低效，那么这个时候就有merge的过程，合并的过程也是同分片的合成一个片段（segment），最终所有的segent组装成一个最终文件
+  reduce端的操作
+    1.拉取拷贝（fetch copy）
+      reduce任务通过各个map任务拉取对用分片。这个过程都是以http协议完成，每个map节点都会启动一个常驻的http server服务，reduce节点会请求这个http server拉取数据，这个过程完全通过网络传输，所以这是一个重量级的操作
+    2.合并排序
+      reduce端，拉取到各个map节点对应的分片数据之后，会进行再次排序，排序完成后，结果丢给reduce函数进行计算.
+  总结：1.shuffle过程就是为了对key进行全局聚合；2.排序操作伴随着整个shuffle过程，所以shuffle是以排序为基础
+
+
+12.hdfs块大小为64MB，64kb 65MB 127MB
 4个map
 
 
