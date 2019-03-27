@@ -1,0 +1,91 @@
+1.hadoop的小文件处理
+  a.Hadoop Archive
+    是一个高效地将小文件放入hdfs块中的文档存储工具，它能够将多个小文件打包成一个HAR文件，这样在减少namneode内存使用的同时，仍然允许对文件进行透明访问。
+    要点:1.对小文件进行存档后，源文件并不会自动删除，需要用户自己删除；2.创建HAR文件的过程实际上是运行一个mr作业，因而需要一个hadoop集群的命令
+    缺陷:1.一旦创建，archives便不可变。要增加或者删除里面的文件，必须重新创建归档计划；2.要归档的文件名不能有空格，否则会抛异常，可以将空格用其他符号替换(使用-Dhar.space.replacement.enable=true 和-Dhar.space.replacement参数)。
+  b.Sequence file
+    sequence file由一系列的二进制key/value组成，如果为key小文件名，value为文件内容，则可以将大批小文件合并成一个大文件
+    　　通常对于“the small files problem”的回应会是：使用SequenceFile。这种方法是说，使用filename作为key，并且file contents作为value。实践中这种方式非常管用。回到10000个100KB的文件，可以写一个程序来将这些小文件写入到一个单独的 SequenceFile中去，然后就可以在一个streaming fashion(directly or using mapreduce)中来使用这个sequenceFile。不仅如此，SequenceFiles也是splittable的，所以mapreduce 可以break them into chunks，并且分别的被独立的处理。和HAR不同的是，这种方式还支持压缩。block的压缩在许多情况下都是最好的选择，因为它将多个 records压缩到一起，而不是一个record一个压缩。
+  c.CombineFileInputForma
+    CombineFileInputFormat类继承自FileInputFormat，主要重写了List getSplits(JobContext job)方法；这个方法会根据数据的分布，mapreduce.input.fileinputformat.split.minsize.per.node、mapreduce.input.fileinputformat.split.minsize.per.rack以及mapreduce.input.fileinputformat.split.maxsize 参数的设置来合并小文件，并生成List。其中mapreduce.input.fileinputformat.split.maxsize参数至关重要
+    同一个 InputSplit 包含了多个HDFS块文件，这些信息存储在 CombineFileSplit 类中，它主要包含以下信息：
+
+    private Path[] paths;
+    private long[] startoffset;
+    private long[] lengths;
+    private String[] locations;
+    private long totLength;
+2.数据倾斜
+  80%的活有20%人的干
+  一种是唯一值非常少，极少数值有非常多的记录值(唯一值少于几千)
+  一种是唯一值比较多，这个字段的某些值有远远多于其他值的记录数，但是它的占比也小于百分之一或千分之一
+  解决方法:
+    1.增加jvm内存，这种适合于第一种情况，这种情况下，往往只能通过硬件的手段来进行调优，增加内存可以显著提高运行效率.
+    2.增加reduce的个数,这适用于第二种情况(唯一值比较多，这个字段的某些值有远远多于其他值的记录数，但是它的占比也小于百分之一或千分之一),我们知道,这种情况下,最容易造成的结果就是大量相同key被partition到一个分区,从而一个reduce执行了大量的工作,而如果我们增加了reduce的个数,这种情况相对来说会减轻很多,毕竟计算的节点多了,就算工作量还是不均匀的,那也要小很多。
+    3.自定义分区,这需要用户自己继承partition类,指定分区策略,这种方式效果比较显著。
+    4.重新设计key,有一种方案是在map阶段时给key加上一个随机数,有了随机数的key就不会被大量的分配到同一节点(小几率),待到reduce后再把随机数去掉即可
+    5.使用combinner合并,combinner是在map阶段,reduce之前的一个中间阶段,在这个阶段可以选择性的把大量的相同key数据先进行一个合并,可以看做是local reduce,然后再交给reduce来处理,这样做的好处很多,即减轻了map端向reduce端发送的数据量（减轻了网络带宽）,也减轻了map端和reduce端中间的shuffle阶段的数据拉取数量(本地化磁盘IO速率),推荐使用这种方法。
+3.hadoop所有进程
+Namenode ——HDFS的守护程序
+记录文件是如何分割成数据块及这些数据块被存储到哪些节点；
+对内存和I/O进行集中管理；
+是个单点，发生故障将使集群崩溃；
+协调客户端对文件的访问；
+管理文件系统的命名空间，记录命名空间内的改动或空间本身属性的改动，记录每个文件数据块在各个Datanode上的位置和副本信息；
+Namenode 使用事务日志记录HDFS元数据的变化。使用映像文件存储文件系统的命名空间，包括文件映射，文件属性等。
+
+Secondary Namenode
+监控HDFS状态的辅助后台程序；
+每个集群一般都有一个；
+与Namenode通信，定期保存HDFS元数据快照，快照可以降低Namenode宕机的影响；
+协助Namenode合并事务日志文件；
+当Namenode故障时可作为备用Namenode使用
+
+
+DataNode
+每台slave服务器都运行一个；
+负责把HDFS数据块读写到本地文件系统；
+负责所在物理节点 的存储管理；
+一次写入，多次读取（不修改）
+文件由数据块组成，典型的块大小是64MB，可配置；
+数据块尽量散布在各节点。
+
+ResourceManager——调度、分配
+ResourceManager是一个中心的服务，调度、启动每一个Job所属的ApplicationMaster，监控ApplicationMaster的存在情况。
+ResourceManager负责作业与资源的调度。接收JobSubmitter提交的作业，按照作业的context信息另外收集来的状态信息，启动调度过程，分配一个Container作为一个ApplicationMaster。
+ResourceManager基于应用程序对资源的需求进行调度，负责将集群资源分配给多个队列和应用程序。
+
+NodeManager——管理YARN集群中的节点。
+提供针对集群中每个节点的服务，从监督对一个容器的终生管理到监视资源和跟踪节点健康。MRv1通过插槽管理Map和Reduce任务的执行，而NodeManager管理抽象容器，这些容器代表着可供一个特定应用程序使用的针对每个节点的资源。
+NodeManager是每一台机器框架的代理，是执行应用程序的容器，监控应用程序的资源使用情况（CPU,内存，硬盘，网络）并且向调度器汇报。
+功能专一：负责container状态的维护，并向RM保持心跳。
+
+ApplicationMaster
+负责一个Job生命周期内的所有工作，类似老的框架中JobTracker。不是每一个Job都有一个ApplicationMaster，它可以运行在ResourceManager以外的机器上。
+
+JournalNode
+journalNode的作用是存放EditLog的,在MR1中editlog是和fsimage存放在一起的然后SecondNamenode做定期合并
+两个NameNode为了数据同步，会通过一组称作JournalNodes的独立进程进行相互通信。当active状态的NameNode的命名空间有任何修改时，会告知大部分的JournalNodes进程。standby状态的NameNode有能力读取JNs中的变更信息，并且一直监控edit log的变化，把变化应用于自己的命名空间。standby可以确保在集群出错时，命名空间状态已经完全同步了。
+4.hadoop的调度器
+FIFO Scheduler
+  FIFO Scheduler把应用按提交的顺序排成一个队列，这是一个先进先出队列，在进行资源分配的时候，先给队列中最头上的应用进行分配资源，待最头上的应用需求满足后再给下一个分配，以此类推。FIFO Scheduler是最简单也是最容易理解的调度器，也不需要任何配置，但它并不适用于共享集群。大的应用可能会占用所有集群资源，这就导致其它应用被阻塞。在共享集群中，更适合采用Capacity Scheduler或Fair Scheduler，这两个调度器都允许大任务和小任务在提交的同时获得一定的系统资源。
+Capacity Scheduler
+  Capacity 调度器允许多个组织共享整个集群，每个组织可以获得集群的一部分计算能力。通过为每个组织分配专门的队列，然后再为每个队列分配一定的集群资源，这样整个集群就可以通过设置多个队列的方式给多个组织提供服务了。除此之外，队列内部又可以垂直划分，这样一个组织内部的多个成员就可以共享这个队列资源了，在一个队列内部，资源的调度是采用的是先进先出(FIFO)策略。在正常的操作中，Capacity调度器不会强制释放Container，当一个队列资源不够用时，这个队列只能获得其它队列释放后的Container资源。当然，我们可以为队列设置一个最大资源使用量，以免这个队列过多的占用空闲资源，导致其它队列无法使用这些空闲资源，这就是”弹性队列”需要权衡的地方。
+FairS cheduler
+  Fair调度器的设计目标是为所有的应用分配公平的资源（对公平的定义可以通过参数来设置）。在上面的“Yarn调度器对比图”展示了一个队列中两个应用的公平调度；当然，公平调度在也可以在多个队列间工作。举个例子，假设有两个用户A和B，他们分别拥有一个队列。当A启动一个job而B没有任务时，A会获得全部集群资源；当B启动一个job后，A的job会继续运行，不过一会儿之后两个任务会各自获得一半的集群资源。如果此时B再启动第二个job并且其它job还在运行，则它将会和B的第一个job共享B这个队列的资源，也就是B的两个job会用于四分之一的集群资源，而A的job仍然用于集群一半的资源，结果就是资源最终在两个用户之间平等的共享。
+
+5.hadoop join的实现方式
+  public class CombineValues implements WritableComparable<CombineValues>:自己自定义一个类CombineValues继承WritableComparable
+
+
+
+
+
+
+
+
+
+
+
+
+ozone hadoop
