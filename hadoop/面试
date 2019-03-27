@@ -111,6 +111,10 @@ FairS cheduler
 10.hadoop的mr过程
 
 
+11.hdfs块大小为64MB，64kb 65MB 127MB
+4个map
+
+
 
 
 
