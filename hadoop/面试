@@ -77,6 +77,29 @@ FairS cheduler
 5.hadoop join的实现方式
   public class CombineValues implements WritableComparable<CombineValues>:自己自定义一个类CombineValues继承WritableComparable
 
+6.二次排序
+      // 创建任务
+      Job job = new Job(conf, SecondSortMapReduce.class.getName());
+
+      //1.1	设置输入目录和设置输入数据格式化的类
+      FileInputFormat.setInputPaths(job, INPUT_PATH);
+      job.setInputFormatClass(KeyValueTextInputFormat.class);
+
+      //1.2	设置自定义Mapper类和设置map函数输出数据的key和value的类型
+      job.setMapperClass(SecondSortMapper.class);
+      job.setMapOutputKeyClass(CombinationKey.class);
+      job.setMapOutputValueClass(IntWritable.class);
+
+      //1.3	设置分区和reduce数量(reduce的数量，和分区的数量对应，因为分区为一个，所以reduce的数量也是一个)
+      job.setPartitionerClass(DefinedPartition.class);
+      job.setNumReduceTasks(1);
+
+      //设置自定义分组策略
+      job.setGroupingComparatorClass(DefinedGroupSort.class);//****************
+      //设置自定义比较策略(因为我的CombineKey重写了compareTo方法，所以这个可以省略)
+      job.setSortComparatorClass(DefinedComparator.class);
+
+
 
 
 
