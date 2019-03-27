@@ -99,6 +99,17 @@ FairS cheduler
       //设置自定义比较策略(因为我的CombineKey重写了compareTo方法，所以这个可以省略)
       job.setSortComparatorClass(DefinedComparator.class);
 
+7.hadoop全局排序
+
+
+8.hadoop的combine和partition
+
+
+9.hadoop的参数优化
+
+
+10.hadoop的mr过程
+
 
 
 
