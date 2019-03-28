@@ -99,7 +99,19 @@ FairS cheduler
       //设置自定义比较策略(因为我的CombineKey重写了compareTo方法，所以这个可以省略)
       job.setSortComparatorClass(DefinedComparator.class);
 
+
+      grouping是做什么的呢，她是reduce端的分组，她是决定reduce方法会被框架调用几次关键，之前的需求之所以成功是因为grouping的compare()默认实现是迭代的前后对象==,
+      也就是比较对象的内存地址，对象不同所以就返回false，也就是不同组，这时reduce方法会被再次调用，而不是内部values的迭代器了。
+      由于reduce端的归并排序规则(之前我们已经定义好了)，直接输出就ok了，相当于每行数据就调用一次reduce方法。
+
 7.hadoop全局排序
+  第一种:只有一个reduce
+  第二种:自定义分区函数实现全局有序
+  第三种：使用TotalOrderPartitioner进行全排序
+    寻找合适的key分割点需要我们对数据的分布有大概的了解，如果我们数据量很大的话，我们不可能对所有的数据进行分析后选出N-1个分割点，最适合的方式是对数据进行抽样，然后对抽样的数据进行分析并选出合适的分割点，hadoop提供三种抽样的方法：
+      1.SplitSampler：从s个split中选取前n条记录取样
+      2.RandomSampler：随机取样
+      3.IntervalSampler：从s个split里面按照一定间隔取样，通常适用于有序数据
 
 
 8.hadoop的combine和partition

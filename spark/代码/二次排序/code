@@ -1,0 +1,97 @@
+/**
+  * 自定义排序分区
+  **/
+class SortPartitioner(partitions: Int) extends Partitioner {
+
+    require(partitions > 0, s"分区的数量($partitions)必须大于零。")
+
+    def numPartitions: Int = partitions
+    def getPartition(key: Any): Int = key match {
+        case (k: String, v: Int) => math.abs(k.hashCode % numPartitions)
+        case null => 0
+        case _ => math.abs(key.hashCode % numPartitions)
+    }
+
+    override def equals(other: Any): Boolean = other match {
+        case o: SortPartitioner => o.numPartitions == numPartitions
+        case _ => false
+    }
+
+    override def hashCode: Int = numPartitions
+}
+
+
+
+Spark的二次排序
+  **/
+object SparkSecondarySort {
+    def main(args: Array[String]): Unit = {
+        if (args.length != 3) {
+            println("输入参数<分区数> <输入路径> <输出路径>不正确")
+            sys.exit(1)
+        }
+
+        //分区数量
+        val partitions: Int = args(0).toInt
+        //文件输入路径
+        val inputPath: String = args(1)
+        //文件输出路径
+        val outputPath: String = args(2)
+        val config: SparkConf = new SparkConf()
+        config.setMaster("local[1]").setAppName("SparkSecondarySort")
+        //创建Spark上下文
+        val sc: SparkContext = SparkSession.builder().config(config).getOrCreate().sparkContext
+        //读取文件内容
+        val input: RDD[String] = sc.textFile(inputPath)
+        val valueToKey: RDD[((String, Int), Int)] = input.map(x => {
+            val line: Array[String] = x.split("\t")
+            ((line(0) + "-" + line(1), line(3).toInt), line(3).toInt)
+        })
+
+        implicit def tupleOrderingDesc = new Ordering[Tuple2[String, Int]] {
+            override def compare(x: Tuple2[String, Int], y: Tuple2[String, Int]): Int = {
+                if (y._1.compare(x._1) == 0) -y._2.compare(x._2)
+                else -y._1.compare(x._1)
+            }
+        }
+
+        val sorted: RDD[((String, Int), Int)] = valueToKey.repartitionAndSortWithinPartitions(new SortPartitioner(partitions))
+        val result = sorted.map {
+            case (k, v) => (k._1, v.toString())
+        }.reduceByKey(_ + "," + _)
+        result.saveAsTextFile(outputPath)
+        // done
+        sc.stop()
+    }
+
+
+    ========================================================
+
+import org.apache.spark.{SparkContext, SparkConf}
+import org.apache.spark.rdd.RDD.rddToOrderedRDDFunctions
+import org.apache.spark.rdd.RDD.rddToPairRDDFunctions
+
+object SecondarySort {
+  def main(args: Array[String]) {
+    val conf = new SparkConf().setAppName(" Secondary Sort ")
+    .setMaster("local")
+    var sc = new SparkContext(conf)
+    sc.setLogLevel("Warn")
+    //val file = sc.textFile("hdfs://localhost:9000/Spark/SecondarySort/Input/SecondarySort2.txt")
+     val file = sc.textFile("e:\\SecondarySort.txt")
+    val rdd = file.map(line => line.split(","))
+    .map(x=>((x(0),x(1)),x(3))).groupByKey().sortByKey(false)
+    .map(x => (x._1._1+"-"+x._1._2,x._2.toList.sortWith(_>_)))
+    rdd.foreach(
+        x=>{
+            val buf = new StringBuilder()
+            for(a <- x._2){
+              buf.append(a)
+              buf.append(",")
+              }
+            buf.deleteCharAt(buf.length()-1)
+            println(x._1+" "+buf.toString())
+        })
+    sc.stop()
+  }
+}
