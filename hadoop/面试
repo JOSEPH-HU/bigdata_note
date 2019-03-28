@@ -114,10 +114,16 @@ FairS cheduler
       3.IntervalSampler：从s个split里面按照一定间隔取样，通常适用于有序数据
 
 
-8.hadoop的combine和partition
+
+8.HDFS quota
+   hdfs dfsadmin -setQuota 5 /user/hadoop/quota //setQuota指的是对HDFS中某个目录设置文件和目录数量之和的最大值。
+   hdfs dfsadmin -setSpaceQuota 134217728 /user/hadoop/spaceQuota//设置HDFS中/user/hadoop/spaceQuota目录存储空间为128MB。
+   hdfs dfsadmin -clrQuota <dirname>...<dirname>//清除配额的命令为
+   hdfs dfsadmin -clrSpaceQuota <dirname>...<dirname>//清除配额的命令为
 
 
-9.hadoop的参数优化
+9.MapReduce的处理流程, map端和reduce端分别用的什么排序算法
+  在Map阶段，k-v溢写时，采用的是快排；而溢出文件的合并使用的则是归并；在Reduce阶段，通过shuffle从Map获取的文件进行合并的时候采用的也是归并；最后阶段则使用了堆排作最后的合并过程。
 
 
 10.hadoop的mr过程
@@ -154,6 +160,6 @@ FairS cheduler
 
 
 
-
+https://blog.csdn.net/weixin_42582592/article/details/83080900
 
 ozone hadoop

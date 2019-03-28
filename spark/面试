@@ -14,3 +14,123 @@
     1、Hadoop的有一个Map完成，Reduce便可以去fetch数据了，不必等到所有Map任务完成，而Spark的必须等到父stage完成，也就是父stage的map操作全部完成才能去fetch数据。
     2、Hadoop的Shuffle是sort-base的，那么不管是Map的输出，还是Reduce的输出，都是partion内有序的，而spark不要求这一点。
     3、Hadoop的Reduce要等到fetch完全部数据，才将数据传入reduce函数进行聚合，而spark是一边fetch一边聚合。
+2.spark join处理倾斜
+// reduceBykey加随机数避免数据倾斜
+val preRDD = rdd.map(x=>{
+Random random = new Random()
+int pre = random.nextInt(100);
+(pre+"_"+x.1, x._2)  //1_hello  2_hello
+})
+val firReduce = preRDD.reduceBykey(+)
+val secRDD = firReduce.map(x=>{
+val key = x.1.split("_")[1]
+(key, x._2)
+})
+val secReduce = secRDD.reduceBykey(+)
+
+
+// 小数据量与大数据量join时避免数据倾斜
+val rdd1 = rdd1.collect()
+val broadcastRdd1 = sc.broadcast(rdd1)
+rdd2.map(x=>{
+val rdd1Data = broadcastRdd1.value()
+val map = HashMap()
+for (data <- rdd1Value){
+  map.append(data.1,data.2)
+}
+val rdd1Value = map.get(x._1)
+(x.1, (x.2, rdd1Value))
+})
+
+
+// 采样倾斜key并分拆join操作
+val sampleRDD = rdd1.sample(false,0.1)
+topIds = sampleRDD.map((.1, 1)).reduceBykey(+).sortBy(.2,false).map(.1).take(100).collect()
+val filterRDD1 = rdd1.filter(line=>{
+topIds.contains(line)
+})
+val commonRDD1 = rdd1.filter(line=>{
+!topIds.contains(line)
+})
+val filterRDD2 = rdd2.filter(line=>{
+topIds.contains(line)
+}).flatMap(x=>{
+val list = BufferList();
+for (i <- 1 to 100){
+  list += (i+"_"+x.1, x._2)
+}
+list
+})
+val joinedRDD1 = filterRDD1.map(x=>{
+Random random = new Random()
+int pre = random.nextInt()
+(pre+"_"+x.1, x._2)
+})
+val joinedRDD1 = joinedRDD1.join(filterRDD2)
+val joinedRDD2 = commonRDD1.join(rdd2)
+val joinedRDD = joinedRDD1.union(joinedRDD2)
+
+3.topn
+val topNResult1: RDD[(String, Seq[Int])] = mapredRDD.groupByKey().map(tuple2 => {
+            //获取values里面的topN
+            val topn = tuple2._2.toList.sorted.takeRight(topN.value).reverse
+            (tuple2._1, topn)
+        })
+
+        println("+---+---+ 使用groupByKey获取TopN的结果：")
+        println(topNResult1.collect().mkString("\n"))
+
+        //2.使用两阶段聚合，先使用随机数进行分组聚合取出局部topn,再聚合取出全局topN的数据
+        val topNResult2: RDD[(String, List[Int])] = mapredRDD.mapPartitions(iterator => {
+            iterator.map(tuple2 => {
+                ((Random.nextInt(10), tuple2._1), tuple2._2)
+            })
+        }).groupByKey().flatMap({
+            //获取values中的前N个值 ，并返回topN的集合数据
+            case ((_, key), values) =>
+                values.toList.sorted.takeRight(topN.value).map(value => (key, value))
+        }).groupByKey().map(tuple2 => {
+            val topn = tuple2._2.toList.sorted.takeRight(topN.value).reverse
+            (tuple2._1, topn)
+        })
+        println("+---+---+ 使用两阶段集合获取TopN的结果：")
+        println(topNResult2.collect().mkString("\n"))
+
+        //3、使用aggregateByKey获取topN的记录
+        val topNResult3: RDD[(String, List[Int])] = mapredRDD.aggregateByKey(ArrayBuffer[Int]())(
+            (u, v) => {
+                u += v
+                u.sorted.takeRight(topN.value)
+            },
+            (u1, u2) => {
+                //对任意的两个局部聚合值进行聚合操作，可以会发生在combiner阶段和shuffle之后的最终的数据聚合的阶段
+                u1 ++= u2
+                u1.sorted.takeRight(topN.value)
+            }
+        ).map(tuple2 => (tuple2._1, tuple2._2.toList.reverse))
+
+4.driver的功能是什么
+  1.一个spark作业运行时包括一个driver进程，也是作业的主进程，具有main函数，并且sparkContext的实例，是程序的入口
+  2.功能：负责集群申请资源，向master注册信息，负责作业调度，负责作业的解析、生成stage并调度task到executor上，包括DAGScheduler，TaskScheduler。
+5.spark为什么比mapreduce快？
+  a.基于内存的计算，减少低效的磁盘交互
+  b.高效的调度算法，基于DAG
+  c.容错机制Linage（血统），精华部分就是DAG和Lingae
+6.容错原理
+  在容错机制中，如果一个节点死机，而且运算窄依赖，则只要把丢失的父RDD分区重新计算，不依赖其他节点。而宽依赖需要父RDD的所有分区都存在，重算就很昂贵。在窄依赖中，在子RDD的分区丢失、重算父RDD分区时，父RDD相应分区的所有数据都是子RDD分区数据，并不存在冗余计算。在宽依赖情况下，丢失一个子RDD分区重算的是每个父RDD的每个分区的所有数据并不是都给丢失的子RDD的分区用，会有一部分数据相当于对应的是未丢失的子RDD分区中需要的数据，这样就会产生冗余计算开销，这也是宽依赖开销更大的原因。
+
+7.cache和checkpoint的区别
+  缓存把RDD计算出来然后放在内存中，但是RDD的依赖关系不能丢掉，当某个点的execute宕机，上面cache的RDD就会丢掉，需要通过依赖关系重新计算出来，不同的是，checkpoint是把RDD保存在HDFS中，是多副本可靠存储，所以依赖链就可以丢掉，就斩断依赖关系，是通过复制实现的高容错，但是有一点要注意，因为checkpoint是需要把job重新从头算一遍，最好先cache一下。chechpoint就可以直接保存缓存中的RDD，就不需要重头计算一遍，对性能有极大的帮助.
+  val data = sc.textFile("/tmp/spark/1.data").cache() // 注意要cache
+  sc.setCheckpointDir("/tmp/spark/checkpoint")
+  data.checkpoint
+  data.count
+  为什么在checkpoint之前要用cache呢？
+    有与在任务结束的时候，会在起一个job进行checkpoint，这样会运算两次
+8.RDD有那些缺陷
+  1.不支持细粒度的写和更新操作，spark写数据是粗粒度，就是批量写入数据，为了提高效率，但是读数据是细粒度的也就是说可以一条一条的读。
+  2.不支持增量迭代计算，Flink支持
+9.rdd有几种操作类型
+  1）transformation，rdd由一种转为另一种rdd2）action，3）cronroller，crontroller是控制算子,cache,persist，对性能和效率的有很好的支持三种类型，
+10.Spark程序执行，有时候默认为什么会产生很多task，怎么修改默认task执行个数？
+  参数可以通过spark_home/conf/spark-default.conf配置文件设置:spark.sql.shuffle.partitions=50 spark.default.parallelism=10第一个是针对spark sql的task数量第二个是非spark sql程序设置生效

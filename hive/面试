@@ -99,3 +99,44 @@ end = b.id
   d.重写逻辑查询计划
   e.将逻辑查询计划转化为物理查询计划
   f.选择最佳策略
+10.合并小文件
+  1、小文件合并（不超过16m）
+  脚本前增加以下2个语句，这是hive做的优化。
+  set hive.merge.mapfiles=true;
+  set hive.merge.mapredfiles=true;
+
+  2.hive自动合并16m以下的小文件
+
+  2、非小文件合并（超过16m）
+  当文件大小超过16m时，上面方法不起作用，需要每格几个insert语句增加以下脚本，意思是从新合并原有的数据到1000个文件中。
+  set mapred.reduce.tasks=1000;
+  insert overwrite 目标表 select * from 目标表 distribute by rand();
+
+  3.文件合并
+  set hive.merge.mapredfiles = true #在Map-Reduce的任务结束时合并小文件
+  set hive.merge.size.per.task = 128000000 #合并文件的大小
+  set hive.merge.smallfiles.avgsize=128000000 #当输出文件的平均大小小于该值时，启动一个独立的map-reduce任务进行文件merge
+
+  4.Map输入合并小文件
+  set mapred.max.split.size=256000000;  #每个Map最大输入大小
+  set mapred.min.split.size.per.node=100000000; #一个节点上split的至少的大小
+  set mapred.min.split.size.per.rack=100000000; #一个交换机下split的至少的大小
+  set hive.input.format=org.apache.hadoop.hive.ql.io.CombineHiveInputFormat;  #执行Map前进行小文件合并
+
+  5.输出合并
+  set hive.merge.mapfiles = true #在Map-only的任务结束时合并小文件
+  set hive.merge.mapredfiles = true #在Map-Reduce的任务结束时合并小文件
+  set hive.merge.size.per.task = 256000000 #合并文件的大小
+  set hive.merge.smallfiles.avgsize=256000000 #当输出文件的平均大小小于该值时，启动一个独立的map-reduce任务进行文件merge
+11.数据倾斜处理
+SELECT a.*
+FROM nullidtable a
+LEFT JOIN ori b ON CASE WHEN a.id IS NULL THEN concat('hive', rand()) ELSE a.id END = b.id;
+12.局部分组
+select
+aaa.cookie_id,aaa.brand_store_sn,aaa.acc,aaa.acc_sort,'1' as type
+from (select
+aa.cookie_id,aa.brand_store_sn,aa.acc,
+ROW_NUMBER() OVER (PARTITION BY aa.cookie_id ORDER BY aa.acc DESC) as acc_sort
+from  (select a.cookie_id,a.brand_store_sn,count(1) as acc  from search_cat_brand_90day_v2 a 
+where a.dt = '${dt}' group by a.cookie_id,a.brand_store_sn) aa) aaa where aaa.acc_sort<=50
