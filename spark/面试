@@ -134,3 +134,133 @@ val topNResult1: RDD[(String, Seq[Int])] = mapredRDD.groupByKey().map(tuple2 => 
   1）transformation，rdd由一种转为另一种rdd2）action，3）cronroller，crontroller是控制算子,cache,persist，对性能和效率的有很好的支持三种类型，
 10.Spark程序执行，有时候默认为什么会产生很多task，怎么修改默认task执行个数？
   参数可以通过spark_home/conf/spark-default.conf配置文件设置:spark.sql.shuffle.partitions=50 spark.default.parallelism=10第一个是针对spark sql的task数量第二个是非spark sql程序设置生效
+11.结构化数据流
+  a.结构化数据流是一个可拓展、容错的。基于sparksql执行的流处理引擎。使用小量的静态数据模拟流处理，伴随流数据的到来，Spark SQL引擎会逐渐连续处理数据并且更新结果到最终的Table中。你可以在Spark SQL上引擎上使用DataSet/DataFrame API处理流数据的聚集，事件窗口，和流与批次的连接操作等。最后Structured Streaming 系统快速，稳定，端到端的恰好一次保证，支持容错的处理。
+  b."Output"是写入到外部存储的写方式，写入方式有不同的模式
+    Complete Mode:整个更新的结果表将写入外部存储器。由存储连接器决定如何处理整个表的写入。支持聚合查询
+    Append Mode:自上次触发后，只有结果表中附加的新行才会写入外部存储器。这仅适用于预计结果表中的现有行不会更改的查询。只有select、where、map、flatmap、filter、join等的查询将支持追加模式。
+    Update Mode:只有自上一个触发器以来在结果表中更新的行才会写入外部存储器（从spark 2.1.1开始可用）。请注意，这与完整模式不同，因为此模式只输出自上一个触发器以来已更改的行。如果查询不包含聚合，则等同于追加模式。
+
+    Queries with aggregation:
+      Aggregation on event-time with watermark:Append, Update, Complete
+      Other aggregations:Complete, Update
+    Queries with mapGroupsWithState:Update
+    Queries with flatMapGroupsWithState:
+      Append operation mode:Append
+      Update operation mode:Update
+    Queries with joins:Append
+    Other queries:Append, update
+  c.容错语义
+    只交付一次端到端语义是结构化流设计背后的关键目标之一。为了实现这一点，我们设计了结构化的流媒体源、接收器和执行引擎，以便可靠地跟踪处理的确切进度，以便通过重新启动和/或重新处理来处理任何类型的故障。假设每个流源都有偏移量（类似于Kafka偏移量或Kinesis序列号），以跟踪流中的读取位置。引擎使用检查点和提前写入日志来记录每个触发器中正在处理的数据的偏移范围。流水槽设计成幂等处理后处理。同时，使用可重放源和等量汇点，结构化流可以确保在任何故障下端到端的语义都是一次性的。
+  d.什么是幂等操作
+    幂等操作的特点就是任意多次执行产生的影响均与一次执行的影响相同;方法一、单次支付请求，也就是直接支付了，不需要额外的数据库操作了，这个时候发起异步请求创建一个唯一的ticketId，就是门票，这张门票只能使用一次就作废，具体步骤如下：
+    异步请求获取门票
+    调用支付，传入门票
+    根据门票ID查询此次操作是否存在，如果存在则表示该操作已经执行过，直接返回结果；如果不存在，支付扣款，保存结果
+    返回结果到客户端
+    如果步骤4通信失败，用户再次发起请求，那么最终结果还是一样的
+
+    方法二、分布式环境下各个服务相互调用
+    这边就要举例我们的系统了，我们支付的时候先要扣款，然后更新订单，这个地方就涉及到了订单服务以及支付服务了。
+    用户调用支付，扣款成功后，更新对应订单状态，然后再保存流水。
+    而在这个地方就没必要使用门票ticketId了，因为会比较闲的麻烦
+    （支付状态：未支付，已支付）
+    步骤：
+    1、查询订单支付状态
+    2、如果已经支付，直接返回结果
+    3、如果未支付，则支付扣款并且保存流水
+    4、返回支付结果
+    如果步骤4通信失败，用户再次发起请求，那么最终结果还是一样的
+    对于做过支付的朋友，幂等，也可以称之为冲正，保证客户端与服务端的交易一致性，避免多次扣款
+    e.满足水印清除聚合状态
+      1.输出的模式是append或者更新
+      2.聚合必须有事件事件的列或者基于事件的列
+      3.水印用的时间戳必须和聚合的时间戳一致
+      4.水印调用必须在聚合之前
+    f.水印聚合语义保证
+      1.水印延迟（用水印设置）为“2小时”，保证引擎不会丢弃任何延迟时间小于2小时的数据。也就是说，任何比最新处理的数据晚2小时（就事件时间而言）以内的数据都保证被聚合。
+      2.但是，担保只在一个方向上是严格的。延迟超过2小时的数据不一定会被删除；它可能会被聚合，也可能不会被聚合。数据越晚，引擎处理数据的可能性就越小。
+    g.join操作
+      left  right
+      static static all join
+      stream static Inner(Supported, not stateful);Left Outer(Supported, not stateful)
+      static stream Inner(Supported, not stateful);Right Outer(Supported, not stateful)
+      stream stream Inner(Supported, optionally specify watermark on both sides + time constraints for state cleanup);Left Outer(Conditionally supported, must specify watermark on right + time constraints for correct results, optionally specify watermark on left for all state cleanup);Right Outer(Conditionally supported, must specify watermark on left + time constraints for correct results, optionally specify watermark on right for all state cleanup)
+    k.ForeachBatch
+      streamingDF.writeStream.foreachBatch { (batchDF: DataFrame, batchId: Long) =>
+      // Transform and write batchDF
+      }.start()
+      注意:1.默认情况下，foreachbatch至少提供一次写入保证。但是，您可以使用提供给函数的batchID作为消除重复输出并获得一次性保证的方法。2.foreachbatch不使用连续处理模式，因为它从根本上依赖于流式查询的微批处理执行。如果以连续模式写入数据，请改用foreach。
+    m.Foreach
+    streamingDatasetOfString.writeStream.foreach(
+    new ForeachWriter[String] {
+
+    def open(partitionId: Long, version: Long): Boolean = {
+    // Open connection
+    }
+
+    def process(record: String): Unit = {
+    // Write string to connection
+    }
+
+    def close(errorOrNull: Throwable): Unit = {
+    // Close the connection
+    }
+    }
+    ).start()
+    注意:open（）方法中的partitionid和epochid可用于在失败导致重新处理某些输入数据时对生成的数据进行重复数据消除。这取决于查询的执行模式。如果流式查询是在微批处理模式下执行的，那么由一个唯一元组（分区_id，epoch_id）表示的每个分区都保证具有相同的数据。因此，（partition_id，epoch_id）可以用于消除重复和/或事务性提交数据，并实现一次性保证。但是，如果流式查询是在连续模式下执行的，则此保证不适用，因此不应用于重复数据消除。
+  n.Triggers
+  // Default trigger (runs micro-batch as soon as it can)
+df.writeStream
+.format("console")
+.start()
+
+// ProcessingTime trigger with two-seconds micro-batch interval
+df.writeStream
+.format("console")
+.trigger(Trigger.ProcessingTime("2 seconds"))
+.start()
+
+// One-time trigger
+df.writeStream
+.format("console")
+.trigger(Trigger.Once())
+.start()
+
+// Continuous trigger with one-second checkpointing interval
+df.writeStream
+.format("console")
+.trigger(Trigger.Continuous("1 second"))
+.start()
+j.Continuous Processing
+  连续处理是Spark 2.3中引入的一种新的实验性流式执行模式，它可以实现低（~1 ms）端到端延迟，并至少保证一次容错。将其与默认的微批处理引擎进行比较，默认微批处理引擎可以实现一次完全保证，但最多可实现~100毫秒的延迟。对于某些类型的查询（在下面讨论），您可以选择在不修改应用程序逻辑的情况下执行它们的模式（即，不更改数据帧/数据集操作）。
+k.withWatermark与mapGroupsWithState的关系
+不管是基于watermark的窗口计算还是自维护的状态流，它们都是有状态的，watermark只是规定了数据进入“状态”（有资格参与状态计算）的条件，并没有（也不适合）声明状态的“退出”机制。对于watermark的窗口计算来说，它们的“退出”机制是：如果最近某个还处于active状态的窗口它的EndTime比当前批次中最新的一个事件时间减去watermark规定的阈值还要“早”，说明这个窗口所有的数据都就绪了，不会再被更新了，就可以把正式“decommission”了。由于这个逻辑对于watermark的窗口计算来说是通行的， 所以被Spark封装在窗口计算中，对开发人员是透明的，但是对于自维护的状态来说“退出”机制是要根据实际情况进行处理的，因此必须要由开发员人员通过编码来实现，这其中除了业务逻辑上决定的“主动”退出（例如接收到了某类session关闭的消息）之外，还需要有一种“保底”的推出机制：状态超时，对于某些有状态的流，可能并没有对应的关闭消息，可以约定在多长时间内没有收到消息就认定状态终结了，那这时就是基于时间阈值的判断，那就又会涉及到是基于事件时间还是处理时间，显然，Spark是同时支持两种模式的，只是有一点会让新人疑惑的是：在基于事件时间的有状态的流计算上，在API层面“似乎”没有给开发人员一个声明“哪个字段是事件时间”的地方，转而是这样约定的：如果开发人员需要开发基于事件时间的有状态的流计算，则必须使用watermark机制，对应到代码层面就是，当你使用mapGroupsWithState(GroupStateTimeout.EventTimeTimeout())(yourGroupStateUpdateFunc)时，前面一定要先声明withWatermark("yourEnenTimeColumnName", yourWatermarkDuration)
+12.Datasets and DataFrames区别
+  Dataset可以认为是DataFrame的一个特例，主要区别是Dataset每一个record存储的是一个强类型值而不是一个Row。DataFrame是一个组织成命名列的数据集,因此具有如下三个特点：
+    1.DataSet可以在编译时检查类型;并且是面向对象的编程接口。
+    2.DataFrame是面向Spark SQL的接口。
+    3.DataFrame和DataSet可以相互转化， df.as[ElementType] 这样可以把DataFrame转化为DataSet， ds.toDF() 这样可以把DataSet转化为DataFrame。
+13.Bucketing, Sorting and Partitioning
+  peopleDF.write.bucketBy(42, "name").sortBy("age").saveAsTable("people_bucketed")
+  usersDF.write.partitionBy("favorite_color").format("parquet").save("namesPartByColor.parquet")
+  usersDF
+  .write
+  .partitionBy("favorite_color")
+  .bucketBy(42, "name")
+  .saveAsTable("users_partitioned_bucketed")
+14.spark sql优化
+  spark.sql.inMemoryColumnarStorage.compressed	true
+  spark.sql.inMemoryColumnarStorage.batchSize 10000
+  spark.sql.files.maxPartitionBytes 134217728 (128 MB)
+  spark.sql.autoBroadcastJoinThreshold 10485760 (10 MB)
+  spark.sql.shuffle.partitions 200
+
+  import org.apache.spark.sql.functions.broadcast
+broadcast(spark.table("src")).join(spark.table("records"), "key").show()
+15.spark streaming的背压机制
+  对于 Receiver-based 数据接收器可以通过park.streaming.receiver.maxRate来设置每秒接受的最大记录数；对于 Direct Approach 的数据接收，我们可以通过配置 spark.streaming.kafka.maxRatePerPartition 参数来限制每次作业中每个 Kafka 分区最多读取的记录条数。这种方法虽然可以通过限制接收速率，来适配当前的处理能力。
+  如果用户配置了 spark.streaming.receiver.maxRate 或 spark.streaming.kafka.maxRatePerPartition，那么最后到底接收多少数据取决于三者的最小值。也就是说每个接收器或者每个 Kafka 分区每秒处理的数据不会超
+  问题：1.需要事先估计好集群的处理速度以及消息数据的产生速度；2.修改完相关参数之后，我们需要手动重启 Spark Streaming 应用程序；3.如果当前集群的处理能力高于我们配置的 maxRate，而且 producer 产生的数据高于 maxRate，这会导致集群资源利用率低下，而且也会导致数据不能够及时处理。
+  
+  为了实现自动调节数据的传输速率，在原有的架构上新增了一个名为 RateController 的组件，这个组件继承自 StreamingListener，其监听所有作业的 onBatchCompleted 事件，并且基于 processingDelay 、schedulingDelay 、当前 Batch 处理的记录条数以及处理完成事件来估算出一个速率；这个速率主要用于更新流每秒能够处理的最大记录的条数。速率估算器（RateEstimator）可以又多种实现，不过目前的 Spark 2.2 只实现了基于 PID 的速率估算器。
