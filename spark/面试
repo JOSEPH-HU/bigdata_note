@@ -1,4 +1,4 @@
-1.spark shuffle过程
+1.spark shuffle过程 ------------https://www.cnblogs.com/jxhd1/p/6528517.html
   spark shuffle相对比较简单，因为不需要全局有序，所以没有那么多排序合并操作，spark shuffle分为write和read两个过程
   a.shuffle write
     shuffle write的处理逻辑会放到该ShuffleMapStage的最后（因为spark以shuffle发生与否来划分stage，也就是宽依赖），final RDD的每一条记录都会写到对应的分区缓存区bucket，
