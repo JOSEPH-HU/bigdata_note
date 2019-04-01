@@ -501,3 +501,10 @@ broadcast(spark.table("src")).join(spark.table("records"), "key").show()
 方案缺点：该方案更多的是缓解数据倾斜，而不是彻底避免数据倾斜。而且需要对整个RDD进行扩容，对内存资源要求很高。
 
 方案实践经验：曾经开发一个数据需求的时候，发现一个join导致了数据倾斜。优化之前，作业的执行时间大约是60分钟左右；使用该方案优化之后，执行时间缩短到10分钟左右，性能提升了6倍。
+
+24.Yarn-cluster和Yarn-client区别
+  1,yarn-cluster适用于生产环境
+  2.yarn-client适用于交互和调试，也就是希望快速地看到application的输出
+  深层含义：yarn-cluster和yarn-client模式的区别就是application master进程的区别；yarn-cluster的driver在am中，负责向yarn申请资源，并监督作业的运行情况，当用户提交作业后，就可以关掉client，作业会继续在yarn执行。yarn-client的driver在clinet上
+25.原理
+https://blog.csdn.net/liuxiangke0210/article/details/79687240
