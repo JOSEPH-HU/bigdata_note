@@ -3,11 +3,6 @@ import com.hankcs.hanlp.corpus.io.IOUtil;
 import com.hankcs.hanlp.corpus.tag.Nature;
 import com.hankcs.hanlp.dictionary.BaseSearcher;
 import com.hankcs.hanlp.dictionary.CoreDictionary;
-import com.vip.planner.codegen.service.VipColorWordModel;
-import com.vip.planner.codegen.service.VipColorWordService;
-import com.vip.planner.codegen.trie.DoubleArrayTrie;
-import com.vip.planner.codegen.util.Constant;
-import com.vip.planner.codegen.util.PageModel;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
