@@ -140,8 +140,7 @@
       4. 解除 Ci 对原来分配的 partition 的消费权（i从0开始）
       5. 将第i*N到（i+1）*N-1个 partition 分配给 Ci
 
-
-
+http://www.jasongj.com/kafka/kafka_stream/
 
 
 10.日志清除策略
