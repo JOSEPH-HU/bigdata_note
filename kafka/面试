@@ -126,6 +126,11 @@
     在 Server 端增加了 GroupCoordinator 这个角色
     将 topic 的 offset 信息由之前存储在 zookeeper(/consumers/<group.id>/offsets/<topic>/<partitionId>,zk写操作性能不高) 上改为存储到一个特殊的 topic 中（__consumer_offsets）
 
+    为什么?
+      Herd effect:任何Broker或者Consumer的增减都会触发所有的Consumer的Rebalance
+      Split Brain:每个Consumer分别单独通过Zookeeper判断哪些Broker和Consumer 宕机了，那么不同Consumer在同一时刻从Zookeeper“看”到的View就可能不一样，这是由Zookeeper的特性决定的，这就会造成不正确的Reblance尝试。
+      调整结果不可控:所有的Consumer都并不知道其它Consumer的Rebalance是否成功，这可能会导致Kafka工作在一个不正确的状态。
+
     Coordinator一般指的是运行在broker上的group Coordinator，用于管理Consumer Group中各个成员，每个KafkaServer都有一个GroupCoordinator实例，管理多个消费者组，主要用于offset位移管理和Consumer Rebalance。
 
     consumer rebalance算法如下：
