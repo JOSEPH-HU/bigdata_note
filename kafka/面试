@@ -140,8 +140,16 @@
       4. 解除 Ci 对原来分配的 partition 的消费权（i从0开始）
       5. 将第i*N到（i+1）*N-1个 partition 分配给 Ci
 
-http://www.jasongj.com/kafka/kafka_stream/
+7.Exactly Once实现原理
+  a.Producer端的消息幂等性保证
+    每个producer在初始化的时候会被分配一个唯一的pid，producer向指定的topic的特定分区发送消息都携带一个自曾的序列号，从零开始的单调递增，broker会将opic-Partition对应的seqNum在内存中维护，每次接受到Producer的消息都会进行校验；只有seqNum比上次提交的seqNum刚好大一，才被认为是合法的。比它大的，说明消息有丢失；比它小的，说明消息重复发送了。以上说的这个只是针对单个Producer在一个session内的情况，假设Producer挂了，又重新启动一个Producer而且分配了另外一个PID，这样就不能达到防重的目的了，所以kafka又引进了Transactional Guarantees（事务性保证）。
+    生产者:enable.idempotence=true
+  b.Transactional Guarantees 事务性保证
+    kafka的事务性保证说的是：同时向多个TopicPartitions发送消息，要么都成功，要么都失败.这种功能可以使得consumer offset的提交（也是向broker产生消息）和producer的发送消息绑定在一起。用户需要提供一个唯一的全局性TransactionalId，这样就能将PID和TransactionalId映射起来，就能解决producer挂掉后跨session的问题，应该是将之前PID的TransactionalId赋值给新的producer。
+    流的设置:processing.guarantee='exactly_once'生产者:transactional.id='uniqueid';enable.idempotence=true
+8.水位和epoch
 
+https://www.cnblogs.com/huxi2b/p/7453543.html
 
 10.日志清除策略
   Kafka日志管理器允许定制删除策略。目前的策略是删除修改时间在N天之前的日志（按时间删除），也可以使用另外一个策略：保留最后的N GB数据的策略(按大小删除)。为了避免在删除时阻塞读操作，采用了copy-on-write(CopyOnWrite机制称为写时复制，理解起来很简单，就是执行修改操作时进行底层数组复制，使得修改操作在新的数组上进行，不妨碍原数组的并发读操作，复制修改完成后更新原数组引用变量。)形式的实现，删除操作进行时，读取操作的二分查找功能实际是在一个静态的快照副本上进行的
