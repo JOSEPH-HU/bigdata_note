@@ -241,6 +241,36 @@ k.withWatermark与mapGroupsWithState的关系
     1.DataSet可以在编译时检查类型;并且是面向对象的编程接口。
     2.DataFrame是面向Spark SQL的接口。
     3.DataFrame和DataSet可以相互转化， df.as[ElementType] 这样可以把DataFrame转化为DataSet， ds.toDF() 这样可以把DataSet转化为DataFrame。
+
+  RDD的优点：
+    1.相比于传统的MapReduce框架，Spark在RDD中内置很多函数操作，group，map，filter等，方便处理结构化或非结构化数据。
+    2.面向对象编程，直接存储的java对象，类型转化也安全
+
+  RDD的缺点：
+      1.由于它基本和hadoop一样万能的，因此没有针对特殊场景的优化，比如对于结构化数据处理相对于sql来比非常麻烦
+      2.默认采用的是java序列号方式，序列化结果比较大，而且数据存储在java堆内存中，导致gc比较频繁
+  DataFrame的优点：
+    1.结构化数据处理非常方便，支持Avro, CSV, elastic search, and Cassandra等kv数据，也支持HIVE tables, MySQL等传统数据表
+    2.有针对性的优化，如采用Kryo序列化，由于数据结构元信息spark已经保存，序列化时不需要带上元信息，大大的减少了序列化大小，而且数据保存在堆外内存中，减少了gc次数,所以运行更快。
+    3.hive兼容，支持hql、udf等
+  DataFrame的缺点：
+    1.编译时不能类型转化安全检查，运行时才能确定是否有问题
+    2.对于对象支持不友好，rdd内部数据直接以java对象存储，dataframe内存存储的是row对象而不能是自定义对象
+  DateSet的优点：
+    1.DateSet整合了RDD和DataFrame的优点，支持结构化和非结构化数据
+    2.和RDD一样，支持自定义对象存储
+    3.和DataFrame一样，支持结构化数据的sql查询
+    4.采用堆外内存存储，gc友好
+    5.类型转化安全，代码友好
+  我们应该什么时候使用DataFrame或DataSet呢？
+    1.如果你想要丰富的语义、高层次的抽象，和特定情景的API，使用DataFrame或DataSet。
+    2.如果你的处理要求涉及到filters, maps, aggregation, averages, sum, SQL queries, columnar access或其他lambda匿名函数，使用DataFrame或DataSet。
+    3.如果希望在编译时获得更高的类型安全性，需要类型化的JVM对象，利用Tungsten编码进行高效的序列化、反序列化，使用DataSet。
+    4.如果你想统一和简化spark的API，使用DataFrame或DataSet
+    5.如果你是一个R用户，使用DataFrame。
+    6.如果你是一个Python用户，使用DataFrame，如果你需要更多的控制功能，尽量回到RDD。
+
+
 13.Bucketing, Sorting and Partitioning
   peopleDF.write.bucketBy(42, "name").sortBy("age").saveAsTable("people_bucketed")
   usersDF.write.partitionBy("favorite_color").format("parquet").save("namesPartByColor.parquet")
