@@ -138,5 +138,29 @@ aaa.cookie_id,aaa.brand_store_sn,aaa.acc,aaa.acc_sort,'1' as type
 from (select
 aa.cookie_id,aa.brand_store_sn,aa.acc,
 ROW_NUMBER() OVER (PARTITION BY aa.cookie_id ORDER BY aa.acc DESC) as acc_sort
-from  (select a.cookie_id,a.brand_store_sn,count(1) as acc  from search_cat_brand_90day_v2 a 
+from  (select a.cookie_id,a.brand_store_sn,count(1) as acc  from search_cat_brand_90day_v2 a
 where a.dt = '${dt}' group by a.cookie_id,a.brand_store_sn) aa) aaa where aaa.acc_sort<=50
+
+12.列式存储的优点
+  a.查询的时候不需要扫描全部的数据，而只需要读取每次查询涉及的列，这样可以将I/O消耗降低N倍，另外可以保存每一列的统计信息(min、max、sum等)，实现部分的谓词下推。
+  b.由于每一列的成员都是同构的，可以针对不同的数据类型使用更高效的数据压缩算法，进一步减小I/O。
+  c.由于每一列的成员的同构性，可以使用更加适合CPU pipeline的编码方式，减小CPU的缓存失效。
+13.Parquet存储格式
+  a.数据模型
+    Parquet支持嵌套的数据模型，类似于Protocol Buffers，每一个数据模型的schema包含多个字段，每一个字段有三个属性：重复次数、数据类型和字段名，重复次数可以是以下三种：required(只出现1次)，repeated(出现0次或多次)，optional(出现0次或1次)。每一个字段的数据类型可以分成两种：group(复杂类型)和primitive(基本类型)。
+  b.文件结构
+    HDFS块(Block)：它是HDFS上的最小的副本单位，HDFS会把一个Block存储在本地的一个文件并且维护分散在不同的机器上的多个副本，通常情况下一个Block的大小为256M、512M等。
+    HDFS文件(File)：一个HDFS的文件，包括数据和元数据，数据分散存储在多个Block中。
+    行组(Row Group)：按照行将数据物理上划分为多个单元，每一个行组包含一定的行数，在一个HDFS文件中至少存储一个行组，Parquet读写的时候会将整个行组缓存在内存中，所以如果每一个行组的大小是由内存大的小决定的。
+    列块(Column Chunk)：在一个行组中每一列保存在一个列块中，行组中的所有列连续的存储在这个行组文件中。不同的列块可能使用不同的算法进行压缩。
+    页(Page)：每一个列块划分为多个页，一个页是最小的编码的单位，在同一个列块的不同页可能使用不同的编码方式。
+14.ORC文件格式
+  a.数据模型
+    ORC原生是不支持嵌套数据格式的，而是通过对复杂数据类型特殊处理的方式实现嵌套格式的支持，
+  b.文件结构
+    1.ORC文件：保存在文件系统上的普通二进制文件，一个ORC文件中可以包含多个stripe，每一个stripe包含多条记录，这些记录按照列进行独立存储，对应到Parquet中的row group的概念。
+    2.文件级元数据：包括文件的描述信息PostScript、文件meta信息（包括整个文件的统计信息）、所有stripe的信息和文件schema信息。
+    3.stripe：一组行形成一个stripe，每次读取文件是以行组为单位的，一般为HDFS的块大小，保存了每一列的索引和数据。
+    4.stripe元数据：保存stripe的位置、每一个列的在该stripe的统计信息以及所有的stream类型和位置。
+    5.row group：索引的最小单位，一个stripe中包含多个row group，默认为10000个值组成。
+    6.stream：一个stream表示文件中一段有效的数据，包括索引和数据两类。索引stream保存每一个row group的位置和统计信息，数据stream包括多种类型的数据，具体需要哪几种是由该列类型和编码方式决定。
