@@ -1,0 +1,46 @@
+https://blog.csdn.net/qq_38265137/article/details/80547796
+
+https://blog.csdn.net/shenshouniu/article/details/84453692
+
+
+https://blog.csdn.net/mytobaby00/article/details/79861162
+
+
+1.基本原理
+  a.Client：需求提出方，负责提交需求（应用），构造流图。
+  b.JobManager：负责应用的资源管理，根据应用的需求，想资源管理部门（ResourceManager）申请资源。
+  c.Yarn的ResourceManager：资源管理部门，负责整个集群的资源统一调度和分配。
+  d.TaskManager：负责实际计算工资，一个应用会拆给多个TaskManager来进行计算
+  e.TaskSlot：任务槽，类似于Yarn当中的Container，用于资源的封装。但是在FLink中，taskSlot只负责封装内存的资源，不包含CPU的资源。每一个TaskManager中会包含3个TaskSlot，所以每一个TaskManager中最多能并发执行的任务是可控的，最多3个。TaskSlot有独占的内存资源，在一个TaskManager中可以运行不同的任务。
+  f.Task：TsakSlot当中的Task就是任务执行的具体单元。
+2.JobClient
+  JobClient是Flink程序和JobManager交互的桥梁，主要负责接收程序、解析程序的执行计划、优化程序的执行计划，然后提交执行计划到JobManager。为了了解Flink的解析过程，需要简单介绍一下Flink的Operator，在Flink主要有三类Operator:a.Source Operator ，顾名思义这类操作一般是数据来源操作，比如文件、socket、kafka等，一般存在于程序的最开始;b.Transformation Operator 这类操作主要负责数据转换，map，flatMap，reduce等算子都属于Transformation Operator;c.Sink Operator，意思是下沉操作，这类操作一般是数据落地，数据存储的过程，放在Job最后，比如数据落地到Hdfs、Mysql、Kafka等等。
+
+  Flink会将程序中每一个算子解析成Operator，然后按照算子之间的关系，将operator组合起来，形成一个Operator组合成的Graph。如下面的代码解析之后形成的执行计划，解析形成执行计划之后，JobClient的任务还没有完，还负责执行计划的优化，这里执行的主要优化是将相邻的Operator融合，形成OperatorChain，因为Flink是分布式运行的，程序中每一个算子，在实际执行中被分隔为多个SubTask，数据流在算子之间的流动，就对应到SubTask之间的数据传递，SubTask之间进行数据传递模式有两种一种是one-to-one的，数据不需要重新分布，也就是数据不需要经过IO，节点本地就能完成，比如上图中的source到map，一种是re-distributed，数据需要通过shuffle过程重新分区，需要经过IO，比如上图中的map到keyBy。显然re-distributed这种模式更加浪费时间，同时影响整个Job的性能。所以，Flink为了提高性能，将one-to-one关系的前后两类subtask，融合形成一个task。而TaskManager中一个task运行一个独立的线程中，同一个线程中的SubTask进行数据传递，不需要经过IO，不需要经过序列化，直接发送数据对象到下一个SubTask，性能得到提升，除此之外，subTask的融合可以减少task的数量，提高taskManager的资源利用率
+3.JobManager
+  JobManager是一个进程，主要负责申请资源，协调以及控制整个job的执行过程，具体包括，调度任务、处理checkpoint、容错等等，在接收到JobClient提交的执行计划之后，针对收到的执行计划，继续解析，因为JobClient只是形成一个operaor层面的执行计划，所以JobManager继续解析执行计划（根据算子的并发度，划分task），形成一个可以被实际调度的由task组成的拓扑图，如上图被解析之后形成下图的执行计划，最后向集群申请资源，一旦资源就绪，就调度task到TaskManager。
+4.TaskManager
+  TaskManager是一个进程，及一个JVM（Flink用java实现）。主要作用是接收并执行JobManager发送的task，并且与JobManager通信，反馈任务状态信息，比如任务分执行中，执行完等状态，上文提到的checkpoint的部分信息也是TaskManager反馈给JobManager的。如果说JobManager是master的话，那么TaskManager就是worker主要用来执行任务。在TaskManager内可以运行多个task。多个task运行在一个JVM内有几个好处，首先task可以通过多路复用的方式TCP连接，其次task可以共享节点之间的心跳信息，减少了网络传输。TaskManager并不是最细粒度的概念，每个TaskManager像一个容器一样，包含一个多或多个Slot，
+5.Slot
+  Slot是TaskManager资源粒度的划分，每个Slot都有自己独立的内存。所有Slot平均分配TaskManger的内存，比如TaskManager分配给Solt的内存为8G，两个Slot，每个Slot的内存为4G，四个Slot，每个Slot的内存为2G，值得注意的是，Slot仅划分内存，不涉及cpu的划分。同时Slot是Flink中的任务执行器（类似Storm中Executor），每个Slot可以运行多个task，而且一个task会以单独的线程来运行。Slot主要的好处有以下几点：
+  可以起到隔离内存的作用，防止多个不同job的task竞争内存。
+  Slot的个数就代表了一个Flink程序的最高并行度，简化了性能调优的过程
+  允许多个Task共享Slot，提升了资源利用率，举一个实际的例子，kafka有3个partition，对应flink的source有3个task，而keyBy我们设置的并行度为20，这个时候如果Slot不能共享的话，需要占用23个Slot，如果允许共享的话，那么只需要20个Slot即可（Slot的默认共享规则计算为20个）。
+  共享Slot，虽然在flink中允许task共享Slot提升资源利用率，但是如果一个Slot中容纳过多task反而会造成资源低下（比如极端情况下所有task都分布在一个Slot内），在Flink中task需要按照一定规则共享Slot。共享Slot的方式有两种，SlotShardingGroup和CoLocationGroup，CoLocationGroup这种方式目前还没有接触过，如果感兴趣可以查阅官方文档。下面主要介绍一下SlotShardingGroup的用法，这种共享的基本思路就是给operator分组，同一组的不同operator的task，可以共享一个Slot。默认所有的operator属于同一个组“default”，及所有operator的task可以共享一个Slot，可以给operator设置不同的group，防止不合理的共享。Flink在调度task分配Slot的时候有两个重要原则：
+    同一个job中，同一个group中不同operator的task可以共享一个Slot
+    Flink是按照拓扑顺序从Source依次调度到Sink的
+6.容错机制---Checkpoint
+  Flink的容错机制的核心部分是制作分布式数据流和操作算子状态的一致性快照。 这些快照充当一致性checkpoint，系统可以在发生故障时回滚。 Flink用于制作这些快照的机制在“分布式数据流的轻量级异步快照”中进行了描述。 它受到分布式快照的标准Chandy-Lamport算法的启发，专门针对Flink的执行模型而定制。
+  6.1Barriers
+    Flink分布式快照的核心概念之一是barriers。 这些barriers被注入数据流并与记录一起作为数据流的一部分向下流动。 barriers永远不会超过记录，数据流严格有序。 barriers将数据流中的记录分为进入当前快照的记录和进入下一个快照的记录。每个barriers都带有快照的ID，并且barriers之前的记录都进入了该快照。 barriers不会中断流的流动，非常轻量级。 来自不同快照的多个barriers可以同时在流中出现，这意味着可以同时发生各种快照。
+    barriers在数据流源处被注入并行数据流中。快照n的barriers被插入的位置（我们称之为Sn）是快照所包含的数据在数据源中最大位置。例如，在Apache Kafka中，此位置将是分区中最后一条记录的偏移量。 将该位置Sn报告给checkpoint协调器（Flink的JobManager）。
+    然后barriers向下游流动。当一个中间操作算子从其所有输入流中收到快照n的barriers时，它会为快照n发出barriers进入其所有输出流中。 一旦sink操作算子（流式DAG的末端）从其所有输入流接收到barriers n，它就向checkpoint协调器确认快照n完成。在所有sink确认快照后，意味快照着已完成。
+    一旦完成快照n，job将永远不再向数据源请求Sn之前的记录，因为此时这些记录（及其后续记录）将已经通过整个数据流拓扑，也即是已经被处理结束啦。
+
+    多输入流:
+      1.一旦操作算子从一个输入流接收到快照barriers n，它就不能处理来自该流的任何记录，直到它从其他输入接收到barriers n为止。 否则，它会搞混属于快照n的记录和属于快照n + 1的记录。
+      2.barriers n所属的流暂时会被搁置。 从这些流接收的记录不会被处理，而是放入输入缓冲区
+      3.一旦从最后一个流接收到barriers n，操作算子就会发出所有挂起的向后传送的记录，然后自己发出快照n的barriers
+      4.之后，它恢复处理来自所有输入流的记录，在处理来自流的记录之前优先处理来自输入缓冲区的记录。
+7.状态
+  https://blog.csdn.net/shenshouniu/article/details/84453692
